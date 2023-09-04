@@ -186,7 +186,9 @@ class Timer:
         Uses voice channel member cache as source-of-truth.
         """
         if (chan := self.channel):
-            members = [member for member in chan.members if not member.bot]
+            members = [
+                member for member in chan.members if not member.bot and 1148167212901859328 in [role.id for role in member.roles]
+            ]
         else:
             members = []
         return members

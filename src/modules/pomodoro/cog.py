@@ -191,6 +191,8 @@ class TimerCog(LionCog):
             return
         if member.bot:
             return
+        if 1148167212901859328 not in [role.id for role in member.roles]:
+            return
 
         # If a member is leaving or joining a running timer, trigger a status update
         if before.channel != after.channel:

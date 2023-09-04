@@ -64,8 +64,15 @@ class MsgEditor(MessageUI):
 
     async def push_change(self, new_data):
         # Cleanup the data
-        if (embed_data := new_data.get('embed', None)) is not None and not embed_data:
-            new_data.pop('embed')
+        if 'embed' in new_data:
+            pop_embed = True
+            embed_data = new_data['embed']
+            for key, value in embed_data.items():
+                if value:
+                    pop_embed = False
+                    break
+            if pop_embed:
+                new_data.pop('embed')
 
         t = self.bot.translator.t
         if 'embed' not in new_data and not new_data.get('content', None):
@@ -229,7 +236,7 @@ class MsgEditor(MessageUI):
             default=str(discord.Colour(value=embed_data['color'])) if 'color' in embed_data else '',
             placeholder=str(discord.Colour.orange()),
             max_length=7,
-            min_length=7
+            min_length=0
         )
 
         modal = MsgEditorInput(
