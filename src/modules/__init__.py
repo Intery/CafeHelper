@@ -19,6 +19,7 @@ active = [
     '.video_channels',
     '.meta',
     '.blanket',
+    '.voicefix',
     '.test',
 ]
 
