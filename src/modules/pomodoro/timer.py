@@ -12,6 +12,7 @@ from utils.lib import MessageArgs, utc_now, replace_multiple
 from core.lion_guild import LionGuild
 from core.data import CoreData
 from babel.translator import ctx_locale
+from gui.errors import RenderingException
 
 from . import babel, logger
 from .data import TimerData
@@ -45,6 +46,7 @@ class Timer:
         '_voice_update_lock',
         '_run_task',
         '_loop_task',
+        'destroyed',
     )
 
     break_name = _p('timer|stage:break|name', "BREAK")
@@ -79,7 +81,10 @@ class Timer:
         # Main loop task. Should not be cancelled.
         self._loop_task = None
 
+        self.destroyed = False
+
     def __repr__(self):
+        # TODO: Add lock status and current state and stage
         return (
             "<Timer "
             f"channelid={self.data.channelid} "
@@ -403,7 +408,7 @@ class Timer:
                         "Remember to press {tick} to register your presence every stage.",
                         len(needs_kick)
                     ), locale=self.locale.value).format(
-                        channel=self.channel.mention,
+                        channel=f"<#{self.data.channelid}>",
                         mentions=', '.join(member.mention for member in needs_kick),
                         tick=self.bot.config.emojis.tick
                     )
@@ -436,7 +441,7 @@ class Timer:
         if not stage:
             return
 
-        if not self.channel.permissions_for(self.guild.me).speak:
+        if not self.channel or not self.channel.permissions_for(self.guild.me).speak:
             return
 
         async with self.lguild.voice_lock:
@@ -498,7 +503,7 @@ class Timer:
                 "{channel} is now on **BREAK**! Take a rest, **FOCUS** starts {timestamp}"
             )
         stageline = t(lazy_stageline).format(
-            channel=self.channel.mention,
+            channel=f"<#{self.data.channelid}>",
             timestamp=f"<t:{int(stage.end.timestamp())}:R>"
         )
         return stageline
@@ -555,29 +560,27 @@ class Timer:
             content = t(_p(
                 'timer|status|stopped:auto',
                 "Timer stopped! Join {channel} to start the timer."
-            )).format(channel=self.channel.mention)
-            embed = None
+            )).format(channel=f"<#{self.data.channelid}>")
         else:
             content = t(_p(
                 'timer|status|stopped:manual',
                 "Timer stopped! Press `Start` to restart the timer."
-            )).format(channel=self.channel.mention)
-            embed = None
-
-        card = await get_timer_card(self.bot, self, stage)
-        await card.render()
+            )).format(channel=f"<#{self.data.channelid}>")
 
         if (ui := self.status_view) is None:
             ui = self.status_view = TimerStatusUI(self.bot, self, self.channel)
 
         await ui.refresh()
 
-        return MessageArgs(
-            content=content,
-            embed=embed,
-            file=card.as_file(f"pomodoro_{self.data.channelid}.png"),
-            view=ui
-        )
+        card = await get_timer_card(self.bot, self, stage)
+        try:
+            await card.render()
+            file = card.as_file(f"pomodoro_{self.data.channelid}.png")
+            args = MessageArgs(content=content, file=file, view=ui)
+        except RenderingException:
+            args = MessageArgs(content=content, view=ui)
+
+        return args
 
     @log_wrap(action='Send Timer Status')
     async def send_status(self, delete_last=True, **kwargs):
@@ -676,6 +679,7 @@ class Timer:
             if repost:
                 await self.send_status(delete_last=False, with_notify=False)
 
+    @log_wrap(action='Update Channel Name')
     async def _update_channel_name(self):
         """
         Submit a task to update the voice channel name.
@@ -683,15 +687,19 @@ class Timer:
         Attempts to ensure that only one task is running at a time.
         Attempts to wait until the next viable channel update slot (via ratelimit).
         """
-        if self._voice_update_task and not self._voice_update_task.done():
-            # Voice update request already submitted
+        if self._voice_update_lock.locked():
+            # Voice update is already running
+            # Note that if channel editing takes a long time,
+            # and the lock is waiting on that,
+            # we may actually miss a channel update in this period.
+            # Erring on the side of less ratelimits.
             return
 
         async with self._voice_update_lock:
             if self._last_voice_update:
                 to_wait = ((self._last_voice_update + timedelta(minutes=5)) - utc_now()).total_seconds()
                 if to_wait > 0:
-                    self._voice_update_task = asyncio.create_task(asyncio.sleep(to_wait))
+                    self._voice_update_task = asyncio.create_task(asyncio.sleep(to_wait), name='timer-voice-wait')
                     try:
                         await self._voice_update_task
                     except asyncio.CancelledError:
@@ -706,8 +714,18 @@ class Timer:
             if new_name == self.channel.name:
                 return
 
-            self._last_voice_update = utc_now()
-            await self.channel.edit(name=self.channel_name)
+            try:
+                logger.debug(f"Requesting channel name update for timer {self}")
+                await self.channel.edit(name=new_name)
+            except discord.HTTPException:
+                logger.warning(
+                    f"Voice channel name update failed for timer {self}",
+                    exc_info=True
+                )
+            finally:
+                # Whether we fail or not, update ratelimit marker
+                # (Repeatedly sending failing requests is even worse than normal ratelimits.)
+                self._last_voice_update = utc_now()
 
     @log_wrap(action="Stop Timer")
     async def stop(self, auto_restart=False):
@@ -736,7 +754,12 @@ class Timer:
             if self._run_task and not self._run_task.done():
                 self._run_task.cancel()
             channelid = self.data.channelid
+            if self.channel:
+                task = asyncio.create_task(
+                    self.channel.edit(name=self.data.pretty_name, reason="Reverting timer channel name")
+                )
             await self.data.delete()
+            self.destroyed = True
             if self.last_status_message:
                 try:
                     await self.last_status_message.delete()
@@ -770,8 +793,8 @@ class Timer:
             to_next_stage = (current.end - utc_now()).total_seconds()
 
             # TODO: Consider request rate and load
-            if to_next_stage > 1 * 60 - drift:
-                time_to_sleep = 1 * 60
+            if to_next_stage > 5 * 60 - drift:
+                time_to_sleep = 5 * 60
             else:
                 time_to_sleep = to_next_stage
 
@@ -795,6 +818,7 @@ class Timer:
             if current.end < utc_now():
                 self._state = self.current_stage
                 task = asyncio.create_task(self.notify_change_stage(current, self._state))
+                background_tasks.add(task)
                 task.add_done_callback(background_tasks.discard)
                 current = self._state
             elif self.members:

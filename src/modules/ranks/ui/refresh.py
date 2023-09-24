@@ -64,9 +64,12 @@ class RankRefreshUI(MessageUI):
     def poke(self):
         self._wakeup.set()
 
+    def start(self):
+        self._loop_task = asyncio.create_task(self._refresh_loop(), name='Rank RefreshUI Monitor')
+
     async def run(self, *args, **kwargs):
         await super().run(*args, **kwargs)
-        self._loop_task = asyncio.create_task(self._refresh_loop(), name='refresh ui loop')
+        self.start()
 
     async def cleanup(self):
         if self._loop_task and not self._loop_task.done():
@@ -199,10 +202,11 @@ class RankRefreshUI(MessageUI):
                 ))
                 value = t(_p(
                     'ui:refresh_ranks|embed|field:remove|value',
-                    "0 {progress} {total}"
+                    "{progress} {done}/{total} removed"
                 )).format(
                     progress=self.progress_bar(self.removed, 0, self.to_remove),
                     total=self.to_remove,
+                    done=self.removed,
                 )
                 embed.add_field(name=name, value=value, inline=False)
             else:
@@ -221,10 +225,11 @@ class RankRefreshUI(MessageUI):
                 ))
                 value = t(_p(
                     'ui:refresh_ranks|embed|field:add|value',
-                    "0 {progress} {total}"
+                    "{progress} {done}/{total} given"
                 )).format(
                     progress=self.progress_bar(self.added, 0, self.to_add),
                     total=self.to_add,
+                    done=self.added,
                 )
                 embed.add_field(name=name, value=value, inline=False)
             else:

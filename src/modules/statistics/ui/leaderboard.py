@@ -75,6 +75,8 @@ class LeaderboardUI(StatsUI):
         # (type, period) -> (pagen -> Optional[Future[Card]])
         self.cache = {}
 
+        self.was_chunked: bool = guild.chunked
+
     async def run(self, interaction: discord.Interaction):
         self._original = interaction
 
@@ -90,6 +92,8 @@ class LeaderboardUI(StatsUI):
         periods[LBPeriod.DAY] = lguild.today
         periods[LBPeriod.WEEK] = lguild.week_start
         periods[LBPeriod.MONTH] = lguild.month_start
+        alltime = (lguild.data.first_joined_at or interaction.guild.created_at).astimezone(lguild.timezone)
+        periods[LBPeriod.ALLTIME] = alltime
         self.period_starts = periods
 
         self.focused = True
@@ -134,6 +138,7 @@ class LeaderboardUI(StatsUI):
 
         # Filter out members which are not in the server and unranked roles and bots
         # Usually hits cache
+        self.was_chunked = self.guild.chunked
         unranked_setting = await self.bot.get_cog('StatsCog').settings.UnrankedRoles.get(self.guild.id)
         unranked_roleids = set(unranked_setting.data)
         true_leaderboard = []
@@ -297,42 +302,42 @@ class LeaderboardUI(StatsUI):
 
     @button(label="This Season", style=ButtonStyle.grey)
     async def season_button(self, press: discord.Interaction, pressed: Button):
-        await press.response.defer(thinking=True)
+        await press.response.defer(thinking=True, ephemeral=True)
         self.current_period = LBPeriod.SEASON
         self.focused = True
         await self.refresh(thinking=press)
 
     @button(label="Today", style=ButtonStyle.grey)
     async def day_button(self, press: discord.Interaction, pressed: Button):
-        await press.response.defer(thinking=True)
+        await press.response.defer(thinking=True, ephemeral=True)
         self.current_period = LBPeriod.DAY
         self.focused = True
         await self.refresh(thinking=press)
 
     @button(label="This Week", style=ButtonStyle.grey)
     async def week_button(self, press: discord.Interaction, pressed: Button):
-        await press.response.defer(thinking=True)
+        await press.response.defer(thinking=True, ephemeral=True)
         self.current_period = LBPeriod.WEEK
         self.focused = True
         await self.refresh(thinking=press)
 
     @button(label="This Month", style=ButtonStyle.grey)
     async def month_button(self, press: discord.Interaction, pressed: Button):
-        await press.response.defer(thinking=True)
+        await press.response.defer(thinking=True, ephemeral=True)
         self.current_period = LBPeriod.MONTH
         self.focused = True
         await self.refresh(thinking=press)
 
     @button(label="All Time", style=ButtonStyle.grey)
     async def alltime_button(self, press: discord.Interaction, pressed: Button):
-        await press.response.defer(thinking=True)
+        await press.response.defer(thinking=True, ephemeral=True)
         self.current_period = LBPeriod.ALLTIME
         self.focused = True
         await self.refresh(thinking=press)
 
     @button(emoji=conf.emojis.backward, style=ButtonStyle.grey)
     async def prev_button(self, press: discord.Interaction, pressed: Button):
-        await press.response.defer(thinking=True)
+        await press.response.defer(thinking=True, ephemeral=True)
         self.pagen -= 1
         self.focused = False
         await self.refresh(thinking=press)
@@ -432,28 +437,44 @@ class LeaderboardUI(StatsUI):
         """
         Generate UI message arguments from stored data
         """
+        t = self.bot.translator.t
+        chunk_warning = t(_p(
+            'ui:leaderboard|chunk_warning',
+            "**Note:** Could not retrieve member list from Discord, so some members may be missing. "
+            "Try again in a minute!"
+        ))
         if self.card is not None:
+            period_start = self.period_starts[self.current_period]
+            header = t(_p(
+                'ui:leaderboard|since',
+                "Counting statistics since {timestamp}"
+            )).format(timestamp=discord.utils.format_dt(period_start))
+            if not self.was_chunked:
+                header = '\n'.join((header, chunk_warning))
             args = MessageArgs(
                 embed=None,
+                content=header,
                 file=self.card.as_file('leaderboard.png')
             )
         else:
-            t = self.bot.translator.t
             if self.stat_type is StatType.VOICE:
                 empty_description = t(_p(
                     'ui:leaderboard|mode:voice|message:empty|desc',
-                    "There has been no voice activity in this period!"
+                    "There has been no voice activity since {timestamp}"
                 ))
             elif self.stat_type is StatType.TEXT:
                 empty_description = t(_p(
                     'ui:leaderboard|mode:text|message:empty|desc',
-                    "There has been no message activity in this period!"
+                    "There has been no message activity since {timestamp}"
                 ))
             elif self.stat_type is StatType.ANKI:
                 empty_description = t(_p(
                     'ui:leaderboard|mode:anki|message:empty|desc',
-                    "There have been no Anki cards reviewed in this period!"
+                    "There have been no Anki cards reviewed since {timestamp}"
                 ))
+            empty_description = empty_description.format(
+                timestamp=discord.utils.format_dt(self.period_starts[self.current_period])
+            )
             embed = discord.Embed(
                 colour=discord.Colour.orange(),
                 title=t(_p(
@@ -462,7 +483,11 @@ class LeaderboardUI(StatsUI):
                 )),
                 description=empty_description
             )
-            args = MessageArgs(embed=embed, files=[])
+            args = MessageArgs(
+                content=chunk_warning if not self.was_chunked else None,
+                embed=embed,
+                files=[]
+            )
         return args
 
     async def refresh_components(self):

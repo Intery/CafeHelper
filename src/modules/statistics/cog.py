@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional
 
@@ -90,8 +91,12 @@ class StatsCog(LionCog):
                 )).format(loading=self.bot.config.emojis.loading),
                 timestamp=utc_now(),
             )
-            await ctx.interaction.response(embed=waiting_embed)
-            await ctx.guild.chunk()
+            await ctx.interaction.response.send_message(embed=waiting_embed)
+            try:
+                await asyncio.wait_for(ctx.guild.chunk(), timeout=10)
+                pass
+            except asyncio.TimeoutError:
+                pass
         else:
             await ctx.interaction.response.defer(thinking=True)
         ui = LeaderboardUI(self.bot, ctx.author, ctx.guild)
@@ -141,13 +146,7 @@ class StatsCog(LionCog):
 
         # Send update ack
         if modified:
-            # TODO
-            description = t(_p(
-                'cmd:configure_statistics|resp:success|desc',
-                "Activity ranks and season leaderboard will now be measured from {season_start}."
-            )).format(
-                season_start=setting_season_start.formatted
-            )
+            description = setting_season_start.update_message
             embed = discord.Embed(
                 colour=discord.Colour.brand_green(),
                 description=description

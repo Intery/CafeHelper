@@ -6,11 +6,13 @@ from discord.ui.select import select, Select, SelectOption, RoleSelect
 from discord.ui.button import button, Button, ButtonStyle
 
 from meta import conf, LionBot
+from meta.errors import ResponseTimedOut
 from core.data import RankType
 from data import ORDER
 
-from utils.ui import MessageUI
+from utils.ui import MessageUI, Confirm
 from utils.lib import MessageArgs
+from wards import equippable_role
 from babel.translator import ctx_translator
 
 from .. import babel, logger
@@ -30,6 +32,7 @@ class RankOverviewUI(MessageUI):
         self.bot = bot
         self.guild = guild
         self.guildid = guild.id
+        self.cog = bot.get_cog('RankCog')
 
         self.lguild = None
 
@@ -98,8 +101,8 @@ class RankOverviewUI(MessageUI):
         Refresh the current ranks,
         ensuring that all members have the correct rank.
         """
-        cog = self.bot.get_cog('RankCog')
-        await cog.interactive_rank_refresh(press, self.guild)
+        async with self.cog.ranklock(self.guild.id):
+            await self.cog.interactive_rank_refresh(press, self.guild)
 
     async def refresh_button_refresh(self):
         self.refresh_button.label = self.bot.translator.t(_p(
@@ -107,15 +110,38 @@ class RankOverviewUI(MessageUI):
             "Refresh Member Ranks"
         ))
 
-    @button(label="CLEAR_BUTTON_PLACEHOLDER", style=ButtonStyle.blurple)
+    @button(label="CLEAR_BUTTON_PLACEHOLDER", style=ButtonStyle.red)
     async def clear_button(self, press: discord.Interaction, pressed: Button):
         """
         Clear the rank list.
         """
-        await self.rank_model.table.delete_where(guildid=self.guildid)
-        self.bot.get_cog('RankCog').flush_guild_ranks(self.guild.id)
-        self.ranks = []
-        await self.redraw()
+        # Confirm deletion
+        t = self.bot.translator.t
+        confirm_msg = t(_p(
+            'ui:rank_overview|button:clear|confirm',
+            "Are you sure you want to **delete all activity ranks** in this server?"
+        ))
+        confirmui = Confirm(confirm_msg, self._callerid)
+        confirmui.confirm_button.label = t(_p(
+            'ui:rank_overview|button:clear|confirm|button:yes',
+            "Yes, clear ranks"
+        ))
+        confirmui.confirm_button.style = ButtonStyle.red
+        confirmui.cancel_button.style = ButtonStyle.green
+        confirmui.cancel_button.label = t(_p(
+            'ui:rank_overview|button:clear|confirm|button:no',
+            "Cancel"
+        ))
+        try:
+            result = await confirmui.ask(press, ephemeral=True)
+        except ResponseTimedOut:
+            result = False
+        if result:
+            async with self.cog.ranklock(self.guild.id):
+                await self.rank_model.table.delete_where(guildid=self.guildid)
+                self.cog.flush_guild_ranks(self.guild.id)
+                self.ranks = []
+            await self.redraw()
 
     async def clear_button_refresh(self):
         self.clear_button.label = self.bot.translator.t(_p(
@@ -160,25 +186,11 @@ class RankOverviewUI(MessageUI):
         or edit an existing rank,
         or throw an error if the role is @everyone or not manageable by the client.
         """
+
         role: discord.Role = selected.values[0]
-        if role >= selection.user.top_role:
-            # Do not allow user to manage a role above their own top role
-            t = self.bot.translator.t
-            error = t(_p(
-                'ui:rank_overview|menu:roles|error:above_caller',
-                "You have insufficient permissions to assign {mention} as a rank role! "
-                "You may only manage roles below your top role."
-            )).format(mention=role.mention)
-            embed = discord.Embed(
-                title=t(_p(
-                    'ui:rank_overview|menu:roles|error:above_caller|title',
-                    "Insufficient permissions!"
-                )),
-                description=error,
-                colour=discord.Colour.brand_red()
-            )
-            await selection.response.send_message(embed=embed, ephemeral=True)
-        elif role.is_assignable():
+
+        if role.is_assignable():
+            # Create or edit the selected role
             existing = next((rank for rank in self.ranks if rank.roleid == role.id), None)
             if existing:
                 # Display and edit the given role
@@ -191,6 +203,8 @@ class RankOverviewUI(MessageUI):
                 )
             else:
                 # Create new rank based on role
+                # Need to check the calling author has authority to manage this role
+                await equippable_role(self.bot, role, selection.user)
                 await RankEditor.create_rank(
                     selection,
                     self.rank_type,
@@ -324,7 +338,7 @@ class RankOverviewUI(MessageUI):
                 string = f"{start} msgs"
         return string
 
-    async def make_message(self) -> MessageArgs:
+    async def make_message(self, show_note=True) -> MessageArgs:
         t = self.bot.translator.t
 
         if self.ranks:
@@ -385,6 +399,40 @@ class RankOverviewUI(MessageUI):
             title=title,
             description=desc
         )
+        if show_note:
+            # Add note about season start
+            note_name = t(_p(
+                'ui:rank_overview|embed|field:note|name',
+                "Note"
+            ))
+            season_start = self.lguild.data.season_start
+            if season_start:
+                season_str = t(_p(
+                    'ui:rank_overview|embed|field:note|value:with_season',
+                    "Ranks are determined by activity since {timestamp}."
+                )).format(
+                    timestamp=discord.utils.format_dt(season_start)
+                )
+            else:
+                season_str = t(_p(
+                    'ui:rank_overview|embed|field:note|value:without_season',
+                    "Ranks are determined by *all-time* statistics.\n"
+                    "To reward ranks from a later time (e.g. to have monthly/quarterly/yearly ranks) "
+                    "set the `season_start` with {stats_cmd}"
+                )).format(stats_cmd=self.bot.core.mention_cmd('configure statistics'))
+            if self.rank_type is RankType.VOICE:
+                addendum = t(_p(
+                    'ui:rank_overview|embed|field:note|value|voice_addendum',
+                    "Also note that ranks will only be updated when a member leaves a tracked voice channel! "
+                    "Use the **Refresh Member Ranks** button below to update all members manually."
+                ))
+                season_str = '\n'.join((season_str, addendum))
+            embed.add_field(
+                name=note_name,
+                value=season_str,
+                inline=False
+            )
+
         return MessageArgs(embed=embed)
 
     async def refresh_layout(self):

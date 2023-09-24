@@ -287,7 +287,7 @@ class RoleMenuCog(LionCog):
 
         error = None
         message = None
-        splits = msgstr.strip().rsplit('/', maxsplit=2)
+        splits = msgstr.strip().rsplit('/', maxsplit=2)[-2:]
         if len(splits) == 2 and splits[0].isdigit() and splits[1].isdigit():
             chid, mid = map(int, splits)
             channel = guild.get_channel(chid)
@@ -678,7 +678,7 @@ class RoleMenuCog(LionCog):
             target_mine = True
         else:
             # Parse provided message link into a Message
-            target_message: discord.Message = await self._parse_msg(message)
+            target_message: discord.Message = await self._parse_msg(ctx.guild, message)
             target_mine = (target_message.author == ctx.guild.me)
 
             # Check that this message is not already attached to a role menu
@@ -747,7 +747,7 @@ class RoleMenuCog(LionCog):
             message_data['content'] = target_message.content
             if target_message.embeds:
                 message_data['embed'] = target_message.embeds[0].to_dict()
-            rawmessage = json.dumps(message_data)
+            rawmessagedata = json.dumps(message_data)
         else:
             if rawmessage is not None:
                 # Attempt to parse rawmessage
@@ -971,14 +971,21 @@ class RoleMenuCog(LionCog):
                 )
                 # TODO: Generate the custom message from the template if it doesn't exist
 
+        # TODO: Pathway for setting menu style
+
         if rawmessage is not None:
             msg_config = target.config.rawmessage
             content = await msg_config.download_attachment(rawmessage)
-            data = await msg_config._parse_string(content)
+            data = await msg_config._parse_string(0, content)
             update_args[msg_config._column] = data
             if template is None:
                 update_args[self.data.RoleMenu.templateid.name] = None
-            ack_lines.append(msg_config.update_message)
+            ack_lines.append(
+                t(_p(
+                    'cmd:rolemenu_edit|parse:custom_message|success',
+                    "Custom menu message updated."
+                ))
+            )
 
         # Update the data, if applicable
         if update_args:
@@ -1185,7 +1192,7 @@ class RoleMenuCog(LionCog):
                                    label: Optional[appcmds.Range[str, 1, 100]] = None,
                                    emoji: Optional[appcmds.Range[str, 0, 100]] = None,
                                    description: Optional[appcmds.Range[str, 0, 100]] = None,
-                                   price: Optional[appcmds.Range[int, 0, MAX_COINS]] = None,
+                                   price: Optional[appcmds.Range[int, -MAX_COINS, MAX_COINS]] = None,
                                    duration: Optional[Transform[int, DurationTransformer(60)]] = None,
                                    ):
         # Type checking guards
@@ -1356,7 +1363,7 @@ class RoleMenuCog(LionCog):
             await target.update_message()
             if target_is_reaction:
                 try:
-                    await self.menu.update_reactons()
+                    await target.update_reactons()
                 except SafeCancellation as e:
                     embed.add_field(
                         name=t(_p(
@@ -1441,7 +1448,7 @@ class RoleMenuCog(LionCog):
                                     label: Optional[appcmds.Range[str, 1, 100]] = None,
                                     emoji: Optional[appcmds.Range[str, 0, 100]] = None,
                                     description: Optional[appcmds.Range[str, 0, 100]] = None,
-                                    price: Optional[appcmds.Range[int, 0, MAX_COINS]] = None,
+                                    price: Optional[appcmds.Range[int, -MAX_COINS, MAX_COINS]] = None,
                                     duration: Optional[Transform[int, DurationTransformer(60)]] = None,
                                     ):
         # Type checking wards

@@ -17,6 +17,7 @@ from .config import conf
 from . import sharding
 from .context import context
 from utils.lib import utc_now
+from utils.ratelimits import Bucket, BucketOverFull, BucketFull
 
 
 log_logger = logging.getLogger(__name__)
@@ -187,6 +188,14 @@ class LessThanFilter(logging.Filter):
         # non-zero return means we log this message
         return 1 if record.levelno < self.max_level else 0
 
+class ExactLevelFilter(logging.Filter):
+    def __init__(self, target_level, name=""):
+        super().__init__(name)
+        self.target_level = target_level
+
+    def filter(self, record):
+        return (record.levelno == self.target_level)
+
 
 class ThreadFilter(logging.Filter):
     def __init__(self, thread_name):
@@ -233,7 +242,6 @@ class ContextInjection(logging.Filter):
 logging_handler_out = logging.StreamHandler(sys.stdout)
 logging_handler_out.setLevel(logging.DEBUG)
 logging_handler_out.setFormatter(log_fmt)
-logging_handler_out.addFilter(LessThanFilter(logging.WARNING))
 logging_handler_out.addFilter(ContextInjection())
 logger.addHandler(logging_handler_out)
 log_logger.addHandler(logging_handler_out)
@@ -258,7 +266,7 @@ class LocalQueueHandler(QueueHandler):
 
 
 class WebHookHandler(logging.StreamHandler):
-    def __init__(self, webhook_url, prefix="", batch=False, loop=None):
+    def __init__(self, webhook_url, prefix="", batch=True, loop=None):
         super().__init__()
         self.webhook_url = webhook_url
         self.prefix = prefix
@@ -269,6 +277,12 @@ class WebHookHandler(logging.StreamHandler):
         self.batch_task = None
         self.last_batched = None
         self.waiting = []
+
+        self.bucket = Bucket(20, 40)
+        self.ignored = 0
+
+        self.session = None
+        self.webhook = None
 
     def get_loop(self):
         if self.loop is None:
@@ -281,7 +295,13 @@ class WebHookHandler(logging.StreamHandler):
         self.get_loop().call_soon_threadsafe(self._post, record)
 
     def _post(self, record):
+        if self.session is None:
+            self.setup()
         asyncio.create_task(self.post(record))
+
+    def setup(self):
+        self.session = aiohttp.ClientSession()
+        self.webhook = Webhook.from_url(self.webhook_url, session=self.session)
 
     async def post(self, record):
         log_context.set("Webhook Logger")
@@ -314,7 +334,7 @@ class WebHookHandler(logging.StreamHandler):
             else:
                 await self._send(message, as_file=as_file)
         except Exception as ex:
-            print(ex)
+            print(f"Unexpected error occurred while logging to webhook: {repr(ex)}", file=sys.stderr)
 
     async def _schedule_batched(self):
         if self.batch_task is not None and not (self.batch_task.done() or self.batch_task.cancelled()):
@@ -327,7 +347,7 @@ class WebHookHandler(logging.StreamHandler):
         except asyncio.CancelledError:
             return
         except Exception as ex:
-            print(ex)
+            print(f"Unexpected error occurred while scheduling batched webhook log: {repr(ex)}", file=sys.stderr)
 
     async def _send_batched_now(self):
         if self.batch_task is not None and not self.batch_task.done():
@@ -342,18 +362,37 @@ class WebHookHandler(logging.StreamHandler):
             await self._send(batched)
 
     async def _send(self, message, as_file=False):
-        async with aiohttp.ClientSession() as session:
-            webhook = Webhook.from_url(self.webhook_url, session=session)
-            if as_file or len(message) > 1900:
-                with StringIO(message) as fp:
-                    fp.seek(0)
-                    await webhook.send(
-                        f"{self.prefix}\n`{message.splitlines()[0]}`",
-                        file=File(fp, filename="logs.md"),
-                        username=log_app.get()
-                    )
-            else:
-                await webhook.send(self.prefix + '\n' + message, username=log_app.get())
+        try:
+            self.bucket.request()
+        except BucketOverFull:
+            # Silently ignore
+            self.ignored += 1
+            return
+        except BucketFull:
+            logger.warning(
+                "Can't keep up! "
+                "Ignoring records on live-logger {self.webhook.id}."
+            )
+            self.ignored += 1
+            return
+        else:
+            if self.ignored > 0:
+                logger.warning(
+                    "Can't keep up! "
+                    f"{self.ignored} live logging records on webhook {self.webhook.id} skipped, continuing."
+                )
+                self.ignored = 0
+
+        if as_file or len(message) > 1900:
+            with StringIO(message) as fp:
+                fp.seek(0)
+                await self.webhook.send(
+                    f"{self.prefix}\n`{message.splitlines()[0]}`",
+                    file=File(fp, filename="logs.md"),
+                    username=log_app.get()
+                )
+        else:
+            await self.webhook.send(self.prefix + '\n' + message, username=log_app.get())
 
 
 handlers = []
@@ -361,8 +400,14 @@ if webhook := conf.logging['general_log']:
     handler = WebHookHandler(webhook, batch=True)
     handlers.append(handler)
 
+if webhook := conf.logging['warning_log']:
+    handler = WebHookHandler(webhook, prefix=conf.logging['warning_prefix'], batch=True)
+    handler.addFilter(ExactLevelFilter(logging.WARNING))
+    handler.setLevel(logging.WARNING)
+    handlers.append(handler)
+
 if webhook := conf.logging['error_log']:
-    handler = WebHookHandler(webhook, prefix=conf.logging['error_prefix'], batch=False)
+    handler = WebHookHandler(webhook, prefix=conf.logging['error_prefix'], batch=True)
     handler.setLevel(logging.ERROR)
     handlers.append(handler)
 

@@ -10,6 +10,8 @@ from discord.ui import Modal, View, Item
 from meta.logger import log_action_stack, logging_context
 from meta.errors import SafeCancellation
 
+from gui.errors import RenderingException
+
 from . import logger
 from ..lib import MessageArgs, error_embed
 
@@ -47,6 +49,16 @@ class LeoUI(View):
 
         # TODO: Replace this with a substitutable ViewLayout class
         self._layout: Optional[tuple[tuple[Item, ...], ...]] = None
+
+    @property
+    def _stopped(self) -> asyncio.Future:
+        """
+        Return an future indicating whether the View has finished interacting.
+
+        Currently exposes a hidden attribute of the underlying View.
+        May be reimplemented in future.
+        """
+        return self._View__stopped
 
     def to_components(self) -> List[Dict[str, Any]]:
         """
@@ -218,17 +230,29 @@ class LeoUI(View):
                 f"Caught a safe cancellation from LeoUI: {e.details}",
                 extra={'action': 'Cancel'}
             )
+        except RenderingException as e:
+            logger.info(
+                f"UI interaction failed due to rendering exception: {repr(e)}"
+            )
+            embed = interaction.client.tree.rendersplat(e)
+            await interaction.client.tree.error_reply(interaction, embed)
         except Exception:
             logger.exception(
-                f"Unhandled interaction exception occurred in item {item!r} of LeoUI {self!r}",
+                f"Unhandled interaction exception occurred in item {item!r} of LeoUI {self!r} from interaction: "
+                f"{interaction.data}",
                 extra={'with_ctx': True, 'action': 'UIError'}
             )
+            # Explicitly handle the bugsplat ourselves
+            splat = interaction.client.tree.bugsplat(interaction, error)
+            await interaction.client.tree.error_reply(interaction, splat)
 
 
 class MessageUI(LeoUI):
     """
     Simple single-message LeoUI, intended as a framework for UIs
     attached to a single interaction response.
+
+    UIs may also be sent as regular messages by using `send(channel)` instead of `run(interaction)`.
     """
 
     def __init__(self, *args, callerid: Optional[int] = None, **kwargs):
@@ -396,8 +420,11 @@ class MessageUI(LeoUI):
 
         try:
             await self._redraw(args)
-        except discord.HTTPException:
-            # Unknown communication erorr, nothing we can reliably do. Exit quietly.
+        except discord.HTTPException as e:
+            # Unknown communication error, nothing we can reliably do. Exit quietly.
+            logger.warning(
+                f"Unexpected UI redraw failure occurred in {self}: {repr(e)}",
+            )
             await self.close()
 
     async def cleanup(self):
@@ -449,11 +476,20 @@ class LeoModal(Modal):
         """
         try:
             raise error
+        except RenderingException as e:
+            logger.info(
+                f"Modal submit failed due to rendering exception: {repr(e)}"
+            )
+            embed = interaction.client.tree.rendersplat(e)
+            await interaction.client.tree.error_reply(interaction, embed)
         except Exception:
             logger.exception(
-                f"Unhandled interaction exception occurred in {self!r}",
+                f"Unhandled interaction exception occurred in {self!r}. Interaction: {interaction.data}",
                 extra={'with_ctx': True, 'action': 'ModalError'}
             )
+            # Explicitly handle the bugsplat ourselves
+            splat = interaction.client.tree.bugsplat(interaction, error)
+            await interaction.client.tree.error_reply(interaction, splat)
 
 
 def error_handler_for(exc):
