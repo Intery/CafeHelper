@@ -372,11 +372,6 @@ class Timer:
         sending a new status message, pinging members, running the voice alert,
         and kicking inactive members if `kick` is True.
         """
-        if not self.members:
-            t = self.bot.translator.t
-            await self.stop(auto_restart=True)
-            return
-
         async with self._lock:
             tasks = []
             after_tasks = []
@@ -532,7 +527,7 @@ class Timer:
                 if needs_warning:
                     warningline = t(_p(
                         'timer|status|warningline',
-                        "**Warning:** {mentions}, please press {tick} to avoid being removed on the next stage."
+                        "**Please press {tick} to avoid being removed on the next stage.**\n{mentions}"
                     )).format(
                         mentions=' '.join(member.mention for member in needs_warning),
                         tick=self.bot.config.emojis.tick
@@ -547,17 +542,27 @@ class Timer:
             if notifyline:
                 notifyline = f"||{notifyline}||"
 
-            content = "\n".join(string for string in (stageline, warningline, notifyline) if string)
+            content = "\n".join(string for string in (stageline, notifyline) if string)
+            if warningline:
+                embed = discord.Embed(
+                    colour=discord.Colour.red(),
+                    title="Warning",
+                    description=warningline
+                )
+            else:
+                embed = None
         elif self.auto_restart:
             content = t(_p(
                 'timer|status|stopped:auto',
                 "Timer stopped! Join {channel} to start the timer."
             )).format(channel=self.channel.mention)
+            embed = None
         else:
             content = t(_p(
                 'timer|status|stopped:manual',
                 "Timer stopped! Press `Start` to restart the timer."
             )).format(channel=self.channel.mention)
+            embed = None
 
         card = await get_timer_card(self.bot, self, stage)
         await card.render()
@@ -569,6 +574,7 @@ class Timer:
 
         return MessageArgs(
             content=content,
+            embed=embed,
             file=card.as_file(f"pomodoro_{self.data.channelid}.png"),
             view=ui
         )
