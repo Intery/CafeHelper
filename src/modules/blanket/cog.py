@@ -1,6 +1,9 @@
 from typing import Optional
 import json
 import asyncio
+import datetime as dt
+
+from dateutil.parser import parse, ParserError
 
 import discord
 from discord.ext import commands as cmds
@@ -54,3 +57,27 @@ class BlanketCog(LionCog):
         await ctx.interaction.edit_original_response(
             content="Message sent! {message.jump_url}"
         )
+
+    @cmds.hybrid_command(
+        name="timestamp",
+        description="Get a discord timestamp in your timezone.",
+    )
+    @appcmds.describe(
+        time="Time you want the timestamp for. Syntax is flexible."
+    )
+    async def timestamp_cmd(self, ctx: LionContext, time: str):
+        timezone = ctx.lmember.timezone
+        time = time.strip()
+        default = dt.datetime.now(tz=timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+        try:
+            ts = parse(time, fuzzy=True, default=default)
+        except ParserError:
+            await ctx.error_reply(
+                f"Could not parse `{time}` as a time! "
+                "For best results use `YYYY-MM-DD HH:MM`"
+            )
+        else:
+            tstr = discord.utils.format_dt(ts, style='f')
+            await ctx.reply(
+                f"{tstr} is `{tstr}`"
+            )
