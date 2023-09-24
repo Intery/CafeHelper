@@ -322,11 +322,11 @@ class Tasklist:
             content = match['content']
             if not content:
                 continue
-            if len(content) > 100:
+            if len(content) > 200:
                 raise UserInputError(
                     t(_p(
                         'modal:tasklist_bulk_editor|error:task_too_long',
-                        "Please keep your tasks under 100 characters!"
+                        "Please keep your tasks under 200 characters!"
                     ))
                 )
 

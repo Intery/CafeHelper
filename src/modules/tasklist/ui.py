@@ -48,7 +48,7 @@ class TasklistCaller(LeoUI):
 class SingleEditor(FastModal):
     task: TextInput = TextInput(
         label='',
-        max_length=100,
+        max_length=200,
         required=True
     )
 

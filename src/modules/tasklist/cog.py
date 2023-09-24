@@ -25,7 +25,7 @@ from .settings import TasklistSettings, TasklistConfigUI
 _p, _np = babel._p, babel._np
 
 
-MAX_LENGTH = 100
+MAX_LENGTH = 200
 
 
 class BeforeSelection(ChoicedEnum):
