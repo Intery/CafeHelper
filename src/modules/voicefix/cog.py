@@ -58,12 +58,13 @@ class VoiceFixCog(LionCog):
         # TODO: Just manually filling here, but move to data eventually
         self.link_channels = {
             1: (
-                1122589406809821184, 1101422204471750728
+                1122589406809821184, 1101422204471750728, 1097147368186593408
             )
         }
         self.channel_links = {
             1122589406809821184: (1,),
-            1101422204471750728: (1,)
+            1101422204471750728: (1,),
+            1097147368186593408: (1,),
         }
         self.hooks[1101422204471750728] = discord.Webhook.from_url(
             "https://discord.com/api/webhooks/1154751966153560105/DPIIo0IyE5-jfIb6vjeHYBXqME9wwYEMSXLJyotu2T9kn84ZczkZgypzb4misErOiE9l",
@@ -71,6 +72,10 @@ class VoiceFixCog(LionCog):
         )
         self.hooks[1122589406809821184] = discord.Webhook.from_url(
             "https://discord.com/api/webhooks/1154752336628039680/mVVYsY5D3NRP-n3RAk-4Nvv7jrQ6F2y1AFVXZ5X9IFAHlk4jd23onfgsYaknBB7HZQKw",
+            client=self.bot
+        )
+        self.hooks[1097147368186593408] = discord.Webhook.from_url(
+            "https://discord.com/api/webhooks/1158446279702093905/ygsbPqJXnN_Kfz2Zq7RKGDT5fG4ZsfCa5W87wS7bMbBqLeZJSEYY8Fz1oxXC3GyhGGRe",
             client=self.bot
         )
 
