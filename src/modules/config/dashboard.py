@@ -22,6 +22,7 @@ from modules.statistics.settings import StatisticsDashboard
 from modules.member_admin.settingui import MemberAdminDashboard
 from modules.moderation.settingui import ModerationDashboard
 from modules.video_channels.settingui import VideoDashboard
+from modules.config.settingui import GeneralDashboard
 
 
 from . import babel, logger
@@ -35,7 +36,7 @@ class GuildDashboard(BasePager):
     Paged UI providing an overview of the guild configuration.
     """
     pages = [
-        (MemberAdminDashboard, LocaleDashboard, EconomyDashboard,),
+        (MemberAdminDashboard, LocaleDashboard, EconomyDashboard, GeneralDashboard,),
         (ModerationDashboard, VideoDashboard,),
         (VoiceTrackerDashboard, TextTrackerDashboard, RankDashboard, StatisticsDashboard,),
         (TasklistDashboard, RoomDashboard, TimerDashboard,),
@@ -185,23 +186,28 @@ class GuildDashboard(BasePager):
     # ----- UI Control -----
     async def reload(self, *args):
         self._cached_pages.clear()
-        if not self._original.is_expired():
+        if self._original and not self._original.is_expired():
             await self.redraw()
+        else:
+            await self.close()
 
     async def refresh(self):
         await super().refresh()
         await self.config_menu_refresh()
-        self._layout = [
+        self.set_layout(
             (self.config_menu,),
             (self.prev_page_button, self.next_page_button)
-        ]
+        )
 
     async def redraw(self, *args):
         await self.refresh()
-        await self._original.edit_original_response(
-            **self.current_page.edit_args,
-            view=self
-        )
+        if self._original and not self._original.is_expired():
+            await self._original.edit_original_response(
+                **self.current_page.edit_args,
+                view=self
+            )
+        else:
+            await self.close()
 
     async def run(self, interaction: discord.Interaction):
         await self.refresh()

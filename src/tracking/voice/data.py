@@ -7,6 +7,7 @@ from data import RowModel, Registry, Table
 from data.columns import Integer, String, Timestamp, Bool
 
 from core.data import CoreData
+from utils.lib import utc_now
 
 
 class VoiceTrackerData(Registry):
@@ -108,10 +109,15 @@ class VoiceTrackerData(Registry):
         video_duration = Integer()
         stream_duration = Integer()
         coins_earned = Integer()
-        last_update = Integer()
+        last_update = Timestamp()
         live_stream = Bool()
         live_video = Bool()
         hourly_coins = Integer()
+
+        @property
+        def _total_coins_earned(self):
+            since = (utc_now() - self.last_update).total_seconds() / 3600
+            return self.coins_earned + since * self.hourly_coins
 
         @classmethod
         @log_wrap(action='close_voice_session')
@@ -154,7 +160,7 @@ class VoiceTrackerData(Registry):
         async def update_voice_session_at(
             cls, guildid: int, userid: int, _at: dt.datetime,
             stream: bool, video: bool, rate: float
-        ) -> int:
+        ):
             async with cls._connector.connection() as conn:
                 async with conn.cursor() as cursor:
                     await cursor.execute(

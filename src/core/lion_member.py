@@ -2,6 +2,7 @@ from typing import Optional
 import datetime as dt
 import pytz
 import discord
+import logging
 
 from meta import LionBot
 from utils.lib import Timezoned
@@ -11,6 +12,9 @@ from babel.translator import SOURCE_LOCALE
 from .data import CoreData
 from .lion_user import LionUser
 from .lion_guild import LionGuild
+
+
+logger = logging.getLogger(__name__)
 
 
 class MemberConfig(ModelConfig):
@@ -103,14 +107,30 @@ class LionMember(Timezoned):
 
     async def remove_role(self, role: discord.Role):
         member = await self.fetch_member()
-        if member is not None and role in member.roles:
+        if member is not None:
             try:
                 await member.remove_roles(role)
-            except discord.HTTPException:
+            except discord.HTTPException as e:
                 # TODO: Logging, audit logging
-                pass
+                logger.warning(
+                    "Lion role removal failed for "
+                    f"<uid: {member.id}>, <gid: {member.guild.id}>, <rid: {role.id}>. "
+                    f"Error: {repr(e)}",
+                )
+            else:
+                if role not in member.roles:
+                    logger.info(
+                        f"Removed role <rid: {role.id}> from member <uid: {self.userid}> in <gid: {self.guildid}>"
+                    )
+                else:
+                    logger.error(
+                        f"Tried to remove role <rid: {role.id}> "
+                        f"from member <uid: {self.userid}> in <gid: {self.guildid}>. "
+                        "Role remove succeeded, but member still has the role."
+                    )
         else:
             # Remove the role from persistent role storage
             cog = self.bot.get_cog('MemberAdminCog')
             if cog:
                 await cog.absent_remove_role(self.guildid, self.userid, role.id)
+            logger.info(f"Removed role <rid: {role.id}> from absent lion <uid: {self.userid}> in <gid: {self.guildid}>")

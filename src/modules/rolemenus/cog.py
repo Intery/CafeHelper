@@ -14,10 +14,12 @@ from meta import LionCog, LionBot, LionContext
 from meta.logger import log_wrap
 from meta.errors import ResponseTimedOut, UserInputError, UserCancelled, SafeCancellation
 from meta.sharding import THIS_SHARD
-from utils.lib import utc_now, error_embed
+from meta.monitor import ComponentMonitor, ComponentStatus, StatusLevel
+from utils.lib import utc_now, error_embed, jumpto
 from utils.ui import Confirm, ChoicedEnum, Transformed, AButton, AsComponents
 from utils.transformers import DurationTransformer
 from utils.monitor import TaskMonitor
+from babel.translator import ctx_locale
 from constants import MAX_COINS
 from data import NULL
 
@@ -142,6 +144,9 @@ class RoleMenuCog(LionCog):
     def __init__(self, bot: LionBot):
         self.bot = bot
         self.data = bot.db.load_registry(RoleMenuData())
+        self.monitor = ComponentMonitor('RoleMenus', self._monitor)
+
+        self.ready = asyncio.Event()
 
         # Menu caches
         self.live_menus = RoleMenu.attached_menus  # guildid -> messageid -> menuid
@@ -149,11 +154,42 @@ class RoleMenuCog(LionCog):
         # Expiry manage
         self.expiry_monitor = ExpiryMonitor(executor=self._expire)
 
+    async def _monitor(self):
+        state = (
+            "<"
+                "RoleMenus"
+                " ready={ready}"
+                " cached={cached}"
+                " views={views}"
+                " live={live}"
+                " expiry={expiry}"
+                ">"
+        )
+        data = dict(
+            ready=self.ready.is_set(),
+            live=sum(len(gmenus) for gmenus in self.live_menus.values()),
+            expiry=repr(self.expiry_monitor),
+            cached=len(RoleMenu._menus),
+            views=len(RoleMenu.menu_views),
+        )
+        if not self.ready.is_set():
+            level = StatusLevel.STARTING
+            info = f"(STARTING) Not initialised. {state}"
+        elif not self.expiry_monitor._monitor_task:
+            level = StatusLevel.ERRORED
+            info = f"(ERRORED) Expiry monitor not running. {state}"
+        else:
+            level = StatusLevel.OKAY
+            info = f"(OK) RoleMenu loaded and listening. {state}"
+
+        return ComponentStatus(level, info, info, data)
+
     # ----- Initialisation -----
     async def cog_load(self):
+        self.bot.system_monitor.add_component(self.monitor)
         await self.data.init()
 
-        self.bot.tree.add_command(rolemenu_ctxcmd)
+        self.bot.tree.add_command(rolemenu_ctxcmd, override=True)
 
         if self.bot.is_ready():
             await self.initialise()
@@ -164,17 +200,28 @@ class RoleMenuCog(LionCog):
         self.live_menus.clear()
         if self.expiry_monitor._monitor_task:
             self.expiry_monitor._monitor_task.cancel()
-        self.bot.tree.remove_command(rolemenu_ctxcmd)
 
     @LionCog.listener('on_ready')
     @log_wrap(action="Initialise Role Menus")
     async def initialise(self):
+        self.ready.clear()
+
+        # Clean up live menu tasks
+        for menu in list(RoleMenu._menus.values()):
+            menu.detach()
+        self.live_menus.clear()
+        if self.expiry_monitor._monitor_task:
+            self.expiry_monitor._monitor_task.cancel()
+
+        # Start monitor
         self.expiry_monitor = ExpiryMonitor(executor=self._expire)
         self.expiry_monitor.start()
 
+        # Load guilds
         guildids = [guild.id for guild in self.bot.guilds]
         if guildids:
             await self._initialise_guilds(*guildids)
+        self.ready.set()
 
     async def _initialise_guilds(self, *guildids):
         """
@@ -269,14 +316,85 @@ class RoleMenuCog(LionCog):
             menu = await self.data.RoleMenu.fetch(equip_row.menuid)
             guild = self.bot.get_guild(menu.guildid)
             if guild is not None:
+                log_errors = []
+                lguild = await self.bot.core.lions.fetch_guild(menu.guildid)
+                t = self.bot.translator.t
+                ctx_locale.set(lguild.locale)
+
                 role = guild.get_role(equip_row.roleid)
                 if role is not None:
                     lion = await self.bot.core.lions.fetch_member(guild.id, equip_row.userid)
                     await lion.remove_role(role)
+                    if (member := lion.member):
+                        if role in member.roles:
+                            logger.error(f"Expired {equipid}, but the member still has the role!")
+                            log_errors.append(t(_p(
+                                'eventlog|event:rolemenu_role_expire|error:remove_failed',
+                                "Removed the role, but the member still has the role!!"
+                            )))
+                        else:
+                            logger.info(f"Expired {equipid}, and successfully removed the role from the member!")
+                    else:
+                        logger.info(
+                            f"Expired {equipid} for non-existent member {equip_row.userid}. "
+                            "Removed from persistent roles."
+                        )
+                        log_errors.append(t(_p(
+                            'eventlog|event:rolemenu_role_expire|error:member_gone',
+                            "Member could not be found.. role has been removed from saved roles."
+                        )))
+                else:
+                    logger.info(f"Could not expire {equipid} because the role was not found.")
+                    log_errors.append(t(_p(
+                        'eventlog|event:rolemenu_role_expire|error:no_role',
+                        "Role {role} no longer exists."
+                    )).format(role=f"`{equip_row.roleid}`"))
                 now = utc_now()
+                lguild.log_event(
+                    title=t(_p(
+                        'eventlog|event:rolemenu_role_expire|title',
+                        "Equipped role has expired"
+                    )),
+                    description=t(_p(
+                        'eventlog|event:rolemenu_role_expire|desc',
+                        "{member}'s role {role} has now expired."
+                    )).format(
+                        member=f"<@{equip_row.userid}>",
+                        role=f"<@&{equip_row.roleid}>",
+                    ),
+                    fields={
+                        t(_p(
+                            'eventlog|event:rolemenu_role_expire|field:menu',
+                            "Obtained From"
+                        )): (
+                            jumpto(
+                                menu.guildid, menu.channelid, menu.messageid
+                            ) if menu and menu.messageid else f"**{menu.name}**",
+                            True
+                        ),
+                        t(_p(
+                            'eventlog|event:rolemenu_role_expire|field:menu',
+                            "Obtained At"
+                        )): (
+                            discord.utils.format_dt(equip_row.obtained_at),
+                            True
+                        ),
+                        t(_p(
+                            'eventlog|event:rolemenu_role_expire|field:expiry',
+                            "Expiry"
+                        )): (
+                            discord.utils.format_dt(equip_row.expires_at),
+                            True
+                        ),
+                    },
+                    errors=log_errors
+                )
                 await equip_row.update(removed_at=now)
+            else:
+                logger.info(f"Could not expire {equipid} because the guild was not found.")
         else:
             # equipid is no longer valid or is not expiring
+            logger.info(f"RoleMenu equipped role {equipid} is no longer valid or is not expiring.")
             pass
 
     # ----- Private Utils -----
@@ -304,7 +422,7 @@ class RoleMenuCog(LionCog):
                     error = t(_p(
                         'parse:message_link|suberror:no_perms',
                         "Insufficient permissions! I need the `MESSAGE_HISTORY` permission in {channel}."
-                    )).format(channel=channel.menion)
+                    )).format(channel=channel.mention)
             else:
                 error = t(_p(
                     'parse:message_link|suberror:channel_dne',
@@ -487,7 +605,7 @@ class RoleMenuCog(LionCog):
                 choice_name = menu.data.name
                 choice_value = f"menuid:{menu.data.menuid}"
                 choices.append(
-                    appcmds.Choice(name=choice_name, value=choice_value)
+                    appcmds.Choice(name=choice_name[:100], value=choice_value)
                 )
 
         if not choices:
@@ -498,7 +616,7 @@ class RoleMenuCog(LionCog):
             )).format(partial=partial)
             choice_value = partial
             choice = appcmds.Choice(
-                name=choice_name, value=choice_value
+                name=choice_name[:100], value=choice_value
             )
             choices.append(choice)
 
@@ -522,7 +640,7 @@ class RoleMenuCog(LionCog):
                 "Please select a menu first"
             ))
             choice_value = partial
-            choices = [appcmds.Choice(name=choice_name, value=choice_value)]
+            choices = [appcmds.Choice(name=choice_name[:100], value=choice_value)]
         else:
             # Resolve the menu name
             menu: RoleMenu
@@ -544,7 +662,7 @@ class RoleMenuCog(LionCog):
                     name=t(_p(
                         'acmpl:menuroles|choice:invalid_menu|name',
                         "Menu '{name}' does not exist!"
-                    )).format(name=menu_name),
+                    )).format(name=menu_name)[:100],
                     value=partial
                 )
                 choices = [choice]
@@ -564,7 +682,7 @@ class RoleMenuCog(LionCog):
                         else:
                             name = mrole.data.label
                         choice = appcmds.Choice(
-                            name=name,
+                            name=name[:100],
                             value=f"<@&{mrole.data.roleid}>"
                         )
                         choices.append(choice)
@@ -573,7 +691,7 @@ class RoleMenuCog(LionCog):
                         name=t(_p(
                             'acmpl:menuroles|choice:no_matching|name',
                             "No roles in this menu matching '{partial}'"
-                        )).format(partial=partial),
+                        )).format(partial=partial)[:100],
                         value=partial
                     )
         return choices[:25]

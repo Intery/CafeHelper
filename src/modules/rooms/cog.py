@@ -168,19 +168,34 @@ class RoomCog(LionCog):
     async def _destroy_channel_room(self, channel: discord.abc.GuildChannel):
         room = self._room_cache[channel.guild.id].get(channel.id, None)
         if room is not None:
+            t = self.bot.translator.t
+            room.lguild.log_event(
+                title=t(_p(
+                    'room|eventlog|event:room_deleted|title',
+                    "Private Room Deleted"
+                )),
+                description=t(_p(
+                    'room|eventlog|event:room_deleted|desc',
+                    "{owner}'s private room was deleted."
+                )).format(
+                    owner="<@{mid}>".format(mid=room.data.ownerid),
+                ),
+                fields=room.eventlog_fields()
+            )
             await room.destroy(reason="Underlying Channel Deleted")
 
     # Setting event handlers
     @LionCog.listener('on_guildset_rooms_category')
     @log_wrap(action='Update Rooms Category')
-    async def _update_rooms_category(self, guildid: int, data: Optional[int]):
+    async def _update_rooms_category(self, guildid: int, setting: RoomSettings.Category):
         """
         Move all active private channels to the new category.
 
         This shouldn't affect the channel function at all.
         """
+        data = setting.data
         guild = self.bot.get_guild(guildid)
-        new_category = guild.get_channel(data) if guild else None
+        new_category = guild.get_channel(data) if guild and data else None
         if new_category:
             tasks = []
             for room in list(self._room_cache[guildid].values()):
@@ -196,10 +211,11 @@ class RoomCog(LionCog):
 
     @LionCog.listener('on_guildset_rooms_visible')
     @log_wrap(action='Update Rooms Visibility')
-    async def _update_rooms_visibility(self, guildid: int, data: bool):
+    async def _update_rooms_visibility(self, guildid: int, setting: RoomSettings.Visible):
         """
         Update the everyone override on each room to reflect the new setting.
         """
+        data = setting.data
         tasks = []
         for room in list(self._room_cache[guildid].values()):
             if room.channel:
@@ -226,6 +242,7 @@ class RoomCog(LionCog):
         """
         Create a new private room.
         """
+        t = self.bot.translator.t
         lguild = await self.bot.core.lions.fetch_guild(guild.id)
 
         # TODO: Consider extending invites to members rather than giving them immediate access
@@ -245,12 +262,31 @@ class RoomCog(LionCog):
             overwrites[member] = member_overwrite
 
         # Create channel
-        channel = await guild.create_voice_channel(
-            name=name,
-            reason=f"Creating Private Room for {owner.id}",
-            category=lguild.config.get(RoomSettings.Category.setting_id).value,
-            overwrites=overwrites
-        )
+        try:
+            channel = await guild.create_voice_channel(
+                name=name,
+                reason=t(_p(
+                    'create_room|create_channel|audit_reason',
+                    "Creating Private Room for {ownerid}"
+                )).format(ownerid=owner.id),
+                category=lguild.config.get(RoomSettings.Category.setting_id).value,
+                overwrites=overwrites
+            )
+        except discord.HTTPException as e:
+            lguild.log_event(
+                t(_p(
+                    'eventlog|event:private_room_create_error|name',
+                    "Private Room Creation Failed"
+                )),
+                t(_p(
+                    'eventlog|event:private_room_create_error|desc',
+                    "{owner} attempted to rent a new private room, but I could not create it!\n"
+                    "They were not charged."
+                )).format(owner=owner.mention),
+                errors=[f"`{repr(e)}`"]
+            )
+            raise
+
         try:
             # Create Room
             now = utc_now()
@@ -286,6 +322,17 @@ class RoomCog(LionCog):
         else:
             logger.info(
                 f"New private room created: {room.data!r}"
+            )
+            lguild.log_event(
+                t(_p(
+                    'eventlog|event:private_room_create|name',
+                    "Private Room Rented"
+                )),
+                t(_p(
+                    'eventlog|event:private_room_create|desc',
+                    "{owner} has rented a new private room {channel}!"
+                )).format(owner=owner.mention, channel=channel.mention),
+                fields=room.eventlog_fields(),
             )
 
         return room
@@ -488,7 +535,7 @@ class RoomCog(LionCog):
             await ui.send(room.channel)
 
     @log_wrap(action='create_room')
-    async def _do_create_room(self, ctx, required, days, rent, name, provided) -> Room:
+    async def _do_create_room(self, ctx, required, days, rent, name, provided) -> Optional[Room]:
         t = self.bot.translator.t
         # TODO: Rollback the channel create if this fails
         async with self.bot.db.connection() as conn:
@@ -543,7 +590,6 @@ class RoomCog(LionCog):
                         )
                     )
                     await ctx.alion.data.update(coins=CoreData.Member.coins + required)
-                    return
                 except discord.HTTPException as e:
                     await ctx.reply(
                         embed=error_embed(
@@ -556,7 +602,6 @@ class RoomCog(LionCog):
                         )
                     )
                     await ctx.alion.data.update(coins=CoreData.Member.coins + required)
-                    return
 
     @room_group.command(
         name=_p('cmd:room_status', "status"),
