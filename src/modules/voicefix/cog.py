@@ -91,14 +91,14 @@ class VoiceFixCog(LionCog):
             sent = []
             linkids = self.channel_links.get(message.channel.id, ())
             if linkids:
-                if message.attachments:
-                    files = await prepare_attachments(message.attachments)
-                else:
-                    files = []
-
                 for linkid in linkids:
                     for channelid in self.link_channels[linkid]:
                         if channelid != message.channel.id:
+                            if message.attachments:
+                                files = await prepare_attachments(message.attachments)
+                            else:
+                                files = []
+
                             hook = self.hooks[channelid]
                             avatar = message.author.avatar or message.author.default_avatar
                             msg = await hook.send(
