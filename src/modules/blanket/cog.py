@@ -1,6 +1,10 @@
 from typing import Optional
 import json
 import asyncio
+
+from discord.enums import TextStyle
+from meta.errors import SafeCancellation
+from utils.ui import input
 import datetime as dt
 
 from dateutil.parser import parse, ParserError
@@ -31,31 +35,60 @@ class BlanketCog(LionCog):
     @appcmds.describe(
         channel="Channel you want to send the message to",
         content="Text of the message",
-        attachment="An attachement to add",
+        attachment1="An attachment to add",
+        attachment2="An attachment to add2",
         message_data="Downloaded message json, as output by the message editor."
     )
     @sys_admin_ward
     async def message_cmd(self, ctx: LionContext,
                           channel: discord.TextChannel | discord.VoiceChannel,
                           content: Optional[str] = None,
-                          attachment: Optional[discord.Attachment] = None,
+                          attachment1: Optional[discord.Attachment] = None,
+                          attachment2: Optional[discord.Attachment] = None,
                           message_data: Optional[discord.Attachment] = None,
                           ):
-        await ctx.interaction.response.defer(thinking=True, ephemeral=True)
         args = {}
+
+        if content:
+            args['content'] = content
+            interaction = ctx.interaction
+        elif ctx.interaction and not message_data:
+            try:
+                interaction, content = await input(
+                    ctx.interaction,
+                    "Enter Message Content",
+                    question="Optional message content here",
+                    style=TextStyle.long,
+                    required=False,
+                )
+            except asyncio.TimeoutError:
+                raise SafeCancellation
+            args['content'] = content
+        elif ctx.interaction:
+            interaction = ctx.interaction
+        else:
+            interaction = None
+
+        if interaction:
+            await interaction.response.defer(thinking=True, ephemeral=True)
+
         if message_data:
             decoded = await MessageSetting.download_attachment(message_data)
             data = json.loads(decoded)
             msg_args = MessageSetting.value_to_args(0, data)
             args.update(msg_args.kwargs)
-        if content:
-            args['content'] = content
-        if attachment:
-            args['file'] = await attachment.to_file()
+        if attachment1 or attachment2:
+            files = []
+            if attachment1:
+                files.append(await attachment1.to_file())
+            if attachment2:
+                files.append(await attachment2.to_file())
+
+            args['files'] = files
 
         message = await channel.send(**args)
-        await ctx.interaction.edit_original_response(
-            content="Message sent! {message.jump_url}"
+        await ctx.reply(
+            content="Message sent! {message.jump_url}".format(message=message)
         )
 
     @cmds.hybrid_command(
