@@ -140,7 +140,7 @@ class RankCog(LionCog):
         self.bot.core.guild_config.register_model_setting(self.settings.DMRanks)
 
         configcog = self.bot.get_cog('ConfigCog')
-        self.crossload_group(self.configure_group, configcog.configure_group)
+        self.crossload_group(self.configure_group, configcog.admin_config_group)
 
     def ranklock(self, guildid):
         lock = self._rank_locks.get(guildid, None)
@@ -592,20 +592,25 @@ class RankCog(LionCog):
                 # Calculate destination
                 to_dm = lguild.config.get('dm_ranks').value
                 rank_channel = lguild.config.get('rank_channel').value
+                sent = False
 
-                if to_dm or not rank_channel:
+                if to_dm:
                     destination = member
                     embed.set_author(
                         name=guild.name,
                         icon_url=guild.icon.url if guild.icon else None
                     )
-                    text = None
-                else:
+                    try:
+                        await destination.send(embed=embed)
+                        sent = True
+                    except discord.HTTPException:
+                        if not rank_channel:
+                            raise
+
+                if not sent and rank_channel:
                     destination = rank_channel
                     text = member.mention
-
-                # Post!
-                await destination.send(embed=embed, content=text)
+                    await destination.send(content=text, embed=embed)
 
     def get_message_map(self,
                         rank_type: RankType,
@@ -926,7 +931,6 @@ class RankCog(LionCog):
         dm_ranks=RankSettings.DMRanks._desc,
         rank_channel=RankSettings.RankChannel._desc,
     )
-    @appcmds.default_permissions(administrator=True)
     @high_management_ward
     async def configure_ranks_cmd(self, ctx: LionContext,
                                   rank_type: Optional[Transformed[RankTypeChoice, AppCommandOptionType.string]] = None,

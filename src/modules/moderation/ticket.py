@@ -5,6 +5,7 @@ from typing import Optional
 
 import discord
 from core.lion_guild import LionGuild
+from data.queries import ORDER
 from meta import LionBot
 from utils.lib import MessageArgs, jumpto, strfdelta, utc_now
 from utils.monitor import TaskMonitor
@@ -86,7 +87,9 @@ class Ticket:
         instantiate the correct classes.
         """
         registry: ModerationData = bot.db.registries['ModerationData']
-        rows = await registry.Ticket.fetch_where(*args, **kwargs)
+        rows = await registry.Ticket.fetch_where(*args, **kwargs).order_by(
+            'created_at', ORDER.DESC,
+        )
         tickets = []
         if rows:
             guildids = set(row.guildid for row in rows)
@@ -99,11 +102,11 @@ class Ticket:
         return tickets
 
     @property
-    def guild(self):
+    def guild(self) -> Optional[discord.Guild]:
         return self.bot.get_guild(self.data.guildid)
 
     @property
-    def target(self):
+    def target(self) -> Optional[discord.Member]:
         guild = self.guild
         if guild:
             return guild.get_member(self.data.targetid)
@@ -111,7 +114,7 @@ class Ticket:
             return None
 
     @property
-    def type(self):
+    def type(self) -> TicketType:
         return self.data.ticket_type
 
     @property
@@ -227,10 +230,10 @@ class Ticket:
                 name=t(_p('ticket|field:pardoned|name', "Pardoned")),
                 value=t(_p(
                     'ticket|field:pardoned|value',
-                    "Pardoned by <&{moderator}> at {timestamp}.\n{reason}"
+                    "Pardoned by <@{moderator}> at {timestamp}.\n{reason}"
                 )).format(
                     moderator=data.pardoned_by,
-                    timestamp=discord.utils.format_dt(timestamp),
+                    timestamp=discord.utils.format_dt(data.pardoned_at) if data.pardoned_at else 'Unknown',
                     reason=data.pardoned_reason or ''
                 ),
                 inline=False
@@ -297,9 +300,6 @@ class Ticket:
             self.expiring.cancel_tasks(self.data.ticketid)
             await self.post()
 
-    async def _revert(self):
-        raise NotImplementedError
-
     async def _expire(self):
         """
         Actual expiry method.
@@ -321,11 +321,16 @@ class Ticket:
         await self.post()
         # TODO: Post an extra note to the modlog about the expiry.
 
-    async def revert(self):
+    async def revert(self, reason: Optional[str] = None, **kwargs):
         """
         Revert this ticket.
+
+        By default this is a no-op.
+        Ticket types should override to implement any required revert logic.
+
+        The optional `reason` paramter is intended for any auditable actions.
         """
-        raise NotImplementedError
+        return
 
     async def expire(self):
         """
@@ -336,5 +341,31 @@ class Ticket:
         """
         await self._expire()
 
-    async def pardon(self):
-        raise NotImplementedError
+    async def pardon(self, modid: int, reason: str):
+        """
+        Pardon a ticket.
+
+        Specifically, set the state of the ticket to `PARDONED`,
+        with the given moderator and reason,
+        and revert the ticket if applicable.
+
+        If the ticket is already pardoned, this is a no-op.
+        """
+        if self.data.ticket_state != TicketState.PARDONED:
+            # Cancel expiry if it was scheduled
+            self.expiring.cancel_tasks(self.data.ticketid)
+
+            # Revert the ticket if it is currently active
+            if self.data.ticket_state in (TicketState.OPEN, TicketState.EXPIRING):
+                await self.revert(reason=f"Pardoned by {modid}")
+
+            # Set pardoned state
+            await self.data.update(
+                ticket_state=TicketState.PARDONED,
+                pardoned_at=utc_now(),
+                pardoned_by=modid,
+                pardoned_reason=reason
+            )
+
+            # Update ticket log message
+            await self.post()

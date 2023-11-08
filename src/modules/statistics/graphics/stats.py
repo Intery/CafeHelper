@@ -70,7 +70,7 @@ async def get_stats_card(bot: LionBot, userid: int, guildid: int, mode: CardMode
             refkey = (guildid, userid)
         else:
             model = data.UserExp
-            msg_since = msgmodel.member_messages_between
+            msg_since = msgmodel.user_messages_since
             refkey = (userid,)
         ref_since = model.xp_since
         ref_between = model.xp_between
@@ -117,12 +117,16 @@ async def get_stats_card(bot: LionBot, userid: int, guildid: int, mode: CardMode
     if streak_start is not None:
         streaks.append((streak_start, today.day))
 
+    skin = await bot.get_cog('CustomSkinCog').get_skinargs_for(
+        guildid, userid, StatsCard.card_id
+    )
+
     card = StatsCard(
         (position, 0),
         period_strings,
         month_string,
         100,
         streaks,
-        skin={'mode': mode}
+        skin=skin | {'mode': mode}
     )
     return card
