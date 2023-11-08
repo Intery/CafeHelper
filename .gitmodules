@@ -3,4 +3,4 @@
 	url = https://github.com/StudyLions/StudyLion-Plugin-GUI.git
 [submodule "skins"]
 	path = skins
-	url = https://github.com/Intery/pillow-skins
+	url = https://github.com/Intery/pillow-skins.git
