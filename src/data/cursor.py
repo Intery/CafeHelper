@@ -3,7 +3,7 @@ from typing import Optional
 
 from psycopg import AsyncCursor, sql
 from psycopg.abc import Query, Params
-from psycopg._encodings import pgconn_encoding
+from psycopg._encodings import conn_encoding
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ class AsyncLoggingCursor(AsyncCursor):
         elif isinstance(query, (sql.SQL, sql.Composed)):
             msg = query.as_string(self)
         elif isinstance(query, bytes):
-            msg = query.decode(pgconn_encoding(self._conn.pgconn), 'replace')
+            msg = query.decode(conn_encoding(self._conn.pgconn), 'replace')
         else:
             msg = repr(query)
         return msg
