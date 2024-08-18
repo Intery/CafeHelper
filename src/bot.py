@@ -70,7 +70,7 @@ async def main():
 
         async with aiohttp.ClientSession() as session:
             async with LionBot(
-                command_prefix='!leo!',
+                command_prefix='!',
                 intents=intents,
                 appname=appname,
                 shardname=shardname,

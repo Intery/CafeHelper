@@ -24,6 +24,7 @@ active = [
     '.sponsors',
     '.topgg',
     '.premium',
+    '.streamalerts',
     '.test',
 ]
 
