@@ -195,9 +195,7 @@ class Timer:
         Uses voice channel member cache as source-of-truth.
         """
         if (chan := self.channel):
-            members = [
-                member for member in chan.members if not member.bot and 1148167212901859328 in [role.id for role in member.roles]
-            ]
+            members = [m for m in chan.members if not m.bot]
         else:
             members = []
         return members
@@ -480,6 +478,7 @@ class Timer:
                 if self.guild.voice_client:
                     await self.guild.voice_client.disconnect(force=True)
                 alert_file = focus_alert_path if stage.focused else break_alert_path
+
                 try:
                     voice_client = await asyncio.wait_for(
                         self.channel.connect(timeout=30, reconnect=False),
@@ -613,7 +612,11 @@ class Timer:
         if render:
             try:
                 card = await get_timer_card(self.bot, self, stage)
-                await card.render()
+                data = await card.render()
+                import io
+                with io.BytesIO(data) as buffer:
+                    with open(f"pomodoro_{self.data.channelid}.png", "wb") as f:
+                        f.write(buffer.getbuffer())
                 rawargs['file'] = card.as_file(f"pomodoro_{self.data.channelid}.png")
             except RenderingException:
                 pass
@@ -841,8 +844,8 @@ class Timer:
             to_next_stage = (current.end - utc_now()).total_seconds()
 
             # TODO: Consider request rate and load
-            if to_next_stage > 5 * 60 - drift:
-                time_to_sleep = 5 * 60
+            if to_next_stage > 1 * 60 - drift:
+                time_to_sleep = 1 * 60
             else:
                 time_to_sleep = to_next_stage
 

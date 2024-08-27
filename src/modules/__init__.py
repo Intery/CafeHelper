@@ -1,6 +1,6 @@
 this_package = 'modules'
 
-active = [
+active_discord = [
     '.sysadmin',
     '.config',
     '.user_config',
@@ -28,7 +28,18 @@ active = [
     '.test',
 ]
 
+active_twitch = [
+    '.nowdoing',
+    '.shoutouts',
+    '.counters',
+    '.tagstrings',
+]
+
+
+def prepare(bot):
+    for ext in active_twitch:
+        bot.load_module(this_package + ext)
 
 async def setup(bot):
-    for ext in active:
+    for ext in active_discord:
         await bot.load_extension(ext, package=this_package)

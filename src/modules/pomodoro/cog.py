@@ -13,6 +13,7 @@ from meta.sharding import THIS_SHARD
 from meta.monitor import ComponentMonitor, ComponentStatus, StatusLevel
 from utils.lib import utc_now
 from utils.ratelimits import limit_concurrency
+from meta.sockets import Channel, register_channel
 
 from wards import low_management_ward
 
@@ -39,12 +40,46 @@ _param_options = {
 }
 
 
+class TimerChannel(Channel):
+    name = 'Timer'
+
+    def __init__(self, cog: 'TimerCog', **kwargs):
+        super().__init__(**kwargs)
+        self.cog = cog
+
+    async def on_connection(self, websocket, event):
+        await super().on_connection(websocket, event)
+        timer = self.cog.get_channel_timer(1261999440160624734)
+        if timer is not None:
+            await self.send_set(
+                timer.data.last_started,
+                timer.data.focus_length,
+                timer.data.break_length,
+                websocket=websocket,
+            )
+
+    async def send_set(self, start_at, focus_length, break_length, goal=12, websocket=None):
+        await self.send_event({
+            'type': "DO",
+            'method': 'setTimer',
+            'args': {
+                'start_at': start_at.isoformat(),
+                'focus_length': focus_length,
+                'break_length': break_length,
+                'block_goal': goal,
+            }
+        }, websocket=websocket)
+
+
 class TimerCog(LionCog):
     def __init__(self, bot: LionBot):
         self.bot = bot
         self.data = bot.db.load_registry(TimerData())
         self.settings = TimerSettings()
         self.monitor = ComponentMonitor('TimerCog', self._monitor)
+
+        self.channel = TimerChannel(self)
+        register_channel(self.channel.name, self.channel)
 
         self.timer_options = TimerOptions()
 
@@ -1012,3 +1047,31 @@ class TimerCog(LionCog):
             ui = TimerConfigUI(self.bot, ctx.guild.id, ctx.channel.id)
             await ui.run(ctx.interaction)
             await ui.wait()
+
+    # ----- Hacky Stream commands -----
+    @cmds.hybrid_group('streamtimer', with_app_command=True)
+    async def streamtimer_group(self, ctx: LionContext):
+        ...
+
+    @streamtimer_group.command(
+        name="update"
+    )
+    @low_management_ward
+    async def streamtimer_update_cmd(self, ctx: LionContext,
+                                     new_start: Optional[str] = None,
+                                     new_goal: int = 12):
+        timer = self.get_channel_timer(1261999440160624734)
+        if timer is None:
+            return
+        if new_start:
+            timezone = ctx.lmember.timezone
+            start_at = await self.bot.get_cog('Reminders').parse_time_static(new_start, timezone)
+            await timer.data.update(last_started=start_at)
+
+        await self.channel.send_set(
+            timer.data.last_started,
+            timer.data.focus_length,
+            timer.data.break_length,
+            goal=new_goal,
+        )
+        await ctx.reply("Stream Timer Updated")

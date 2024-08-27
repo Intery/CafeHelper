@@ -56,7 +56,9 @@ class LionBot(Bot):
     def __init__(
         self, *args, appname: str, shardname: str, db: Database, config: Conf, translator: LeoBabel,
         initial_extensions: List[str], web_client: ClientSession, app_ipc,
-        testing_guilds: List[int] = [], **kwargs
+        testing_guilds: List[int] = [],
+        system_monitor: Optional[SystemMonitor] = None,
+        **kwargs
     ):
         kwargs.setdefault('tree_cls', LionTree)
         super().__init__(*args, **kwargs)
@@ -71,7 +73,7 @@ class LionBot(Bot):
         self.app_ipc = app_ipc
         self.translator = translator
 
-        self.system_monitor = SystemMonitor()
+        self.system_monitor = system_monitor or SystemMonitor()
         self.monitor = ComponentMonitor('LionBot', self._monitor_status)
         self.system_monitor.add_component(self.monitor)
 

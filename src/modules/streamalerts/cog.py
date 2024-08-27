@@ -115,7 +115,7 @@ class AlertCog(LionCog):
                 # Note we set page size to 100
                 # So we should never get repeat or missed streams
                 # Since we can request a max of 100 userids anyway.
-                streaming[stream.user_id] = stream
+                streaming[int(stream.user_id)] = stream
 
             started = set(streaming.keys()).difference(self.live_streams.keys())
             ended = set(self.live_streams.keys()).difference(streaming.keys())
@@ -123,9 +123,9 @@ class AlertCog(LionCog):
             for streamerid in started:
                 stream = streaming[streamerid]
                 stream_data = await self.data.Stream.create(
-                    streamerid=stream.user_id,
+                    streamerid=int(stream.user_id),
                     start_at=stream.started_at,
-                    twitch_stream_id=stream.id,
+                    twitch_stream_id=int(stream.id),
                     game_name=stream.game_name,
                     title=stream.title,
                 )
@@ -143,7 +143,7 @@ class AlertCog(LionCog):
 
     async def on_stream_start(self, stream_data):
         # Get channel subscriptions listening for this streamer
-        uid = stream_data.streamerid
+        uid = int(stream_data.streamerid)
         logger.info(f"Streamer <uid:{uid}> started streaming! {stream_data=}")
         subbed = await self.data.AlertChannel.fetch_where(streamerid=uid)
 
@@ -197,7 +197,7 @@ class AlertCog(LionCog):
             return
 
         # Build message
-        streamer = await self.data.Streamer.fetch(stream_data.streamerid)
+        streamer = await self.data.Streamer.fetch(int(stream_data.streamerid))
         if not streamer:
             # Streamer was deleted while handling the alert
             # Just quietly ignore
@@ -235,7 +235,7 @@ class AlertCog(LionCog):
 
         # Store sent alert
         alert = await self.data.StreamAlert.create(
-            streamid=stream_data.streamid,
+            streamid=int(stream_data.streamid),
             subscriptionid=subscription.subscriptionid,
             sent_at=utc_now(),
             messageid=message.id
@@ -246,7 +246,7 @@ class AlertCog(LionCog):
 
     async def on_stream_end(self, stream_data):
         # Get channel subscriptions listening for this streamer
-        uid = stream_data.streamerid
+        uid = int(stream_data.streamerid)
         logger.info(f"Streamer <uid:{uid}> stopped streaming! {stream_data=}")
         subbed = await self.data.AlertChannel.fetch_where(streamerid=uid)
 
@@ -269,8 +269,8 @@ class AlertCog(LionCog):
     async def sub_resolve(self, subscription, stream_data):
         # Check if there is a current active alert to resolve
         alerts = await self.data.StreamAlert.fetch_where(
-            streamid=stream_data.streamid,
-            subscriptionid=subscription.subscriptionid,
+            streamid=int(stream_data.streamid),
+            subscriptionid=int(subscription.subscriptionid),
         )
         if not alerts:
             logger.info(
@@ -322,7 +322,7 @@ class AlertCog(LionCog):
                         )
                 else:
                     # Edit message with custom arguments
-                    streamer = await self.data.Streamer.fetch(stream_data.streamerid)
+                    streamer = await self.data.Streamer.fetch(int(stream_data.streamerid))
                     formatter = await edit_setting.generate_formatter(self.bot, stream_data, streamer)
                     formatted = await formatter(edit_setting.value)
                     args = edit_setting.value_to_args(subscription.subscriptionid, formatted)
@@ -400,7 +400,7 @@ class AlertCog(LionCog):
 
         # Create streamer data if it doesn't already exist
         streamer_data = await self.data.Streamer.fetch_or_create(
-            tw_user.id,
+            int(tw_user.id),
             login_name=tw_user.login,
             display_name=tw_user.display_name,
         )
@@ -418,8 +418,10 @@ class AlertCog(LionCog):
         self.watching[streamer_data.userid] = streamer_data
 
         # Open AlertEditorUI for the new subscription
-        # TODO
         await ctx.reply("StreamAlert Created.")
+        ui = AlertEditorUI(bot=self.bot, sub_data=sub_data, callerid=ctx.author.id)
+        await ui.run(ctx.interaction)
+        await ui.wait()
 
     async def alert_acmpl(self, interaction: discord.Interaction, partial: str):
         if not interaction.guild:

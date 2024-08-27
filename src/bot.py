@@ -1,15 +1,17 @@
 import asyncio
+from contextlib import AsyncExitStack
 import logging
+import websockets
 
 import aiohttp
 import discord
 from discord.ext import commands
 
-from meta import LionBot, conf, sharding, appname, shard_talk
+from meta import CrocBot, LionBot, conf, sharding, appname, shard_talk, sockets, args
 from meta.app import shardname
 from meta.logger import log_context, log_action_stack, setup_main_logger
 from meta.context import ctx_bot
-from meta.monitor import ComponentMonitor, StatusLevel, ComponentStatus
+from meta.monitor import ComponentMonitor, StatusLevel, ComponentStatus, SystemMonitor
 
 from data import Database
 
@@ -58,18 +60,28 @@ async def main():
     intents.message_content = True
     intents.presences = False
 
-    async with db.open():
+    system_monitor = SystemMonitor()
+
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(db.open())
+
         version = await db.version()
         if version.version != DATA_VERSION:
             error = f"Data model version is {version}, required version is {DATA_VERSION}! Please migrate."
             logger.critical(error)
             raise RuntimeError(error)
+        system_monitor.add_component(ComponentMonitor('Database', _data_monitor))
 
         translator = LeoBabel()
         ctx_translator.set(translator)
 
-        async with aiohttp.ClientSession() as session:
-            async with LionBot(
+        session = await stack.enter_async_context(aiohttp.ClientSession())
+        await stack.enter_async_context(
+            websockets.serve(sockets.root_handler, '', conf.wserver['port'])
+        )
+
+        lionbot = await stack.enter_async_context(
+            LionBot(
                 command_prefix='!',
                 intents=intents,
                 appname=appname,
@@ -81,7 +93,7 @@ async def main():
                     'modules',
                     'babel',
                     'tracking.voice', 'tracking.text',
-                ],
+                    ],
                 web_client=session,
                 app_ipc=shard_talk,
                 testing_guilds=conf.bot.getintlist('admin_guilds'),
@@ -91,18 +103,49 @@ async def main():
                 proxy=conf.bot.get('proxy', None),
                 translator=translator,
                 chunk_guilds_at_startup=False,
-            ) as lionbot:
-                ctx_bot.set(lionbot)
-                lionbot.system_monitor.add_component(
-                    ComponentMonitor('Database', _data_monitor)
-                )
-                try:
-                    log_context.set(f"APP: {appname}")
-                    logger.info("StudyLion initialised, starting!", extra={'action': 'Starting'})
-                    await lionbot.start(conf.bot['TOKEN'])
-                except asyncio.CancelledError:
-                    log_context.set(f"APP: {appname}")
-                    logger.info("StudyLion closed, shutting down.", extra={'action': "Shutting Down"}, exc_info=True)
+                system_monitor=system_monitor,
+            )
+        )
+
+        crocbot = CrocBot(
+            config=conf,
+            data=db,
+            prefix='!',
+            initial_channels=conf.croccy.getlist('initial_channels'),
+            token=conf.croccy['token'],
+            lionbot=lionbot
+        )
+        lionbot.crocbot = crocbot
+
+        crocbot.load_module('modules')
+
+        crocstart = asyncio.create_task(start_croccy(crocbot))
+        lionstart = asyncio.create_task(start_lion(lionbot))
+        await asyncio.wait((crocstart, lionstart), return_when=asyncio.FIRST_COMPLETED)
+        crocstart.cancel()
+        lionstart.cancel()
+
+async def start_lion(lionbot):
+    ctx_bot.set(lionbot)
+    try:
+        log_context.set(f"APP: {appname}")
+        logger.info("StudyLion initialised, starting!", extra={'action': 'Starting'})
+        await lionbot.start(conf.bot['TOKEN'])
+    except asyncio.CancelledError:
+        log_context.set(f"APP: {appname}")
+        logger.info("StudyLion closed, shutting down.", extra={'action': "Shutting Down"}, exc_info=True)
+
+async def start_croccy(crocbot):
+    try:
+        log_context.set(f"APP: {appname}-croccy")
+        logger.info("Starting Twitch bot.", extra={'action': 'Starting'})
+        await crocbot.start()
+    except asyncio.CancelledError:
+        logger.info("Croccybot shutting down gracefully.")
+    except Exception:
+        logger.exception("Croccybot shutting down ungracefully.")
+    finally:
+        await crocbot.close()
 
 
 def _main():

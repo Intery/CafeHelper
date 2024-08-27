@@ -1406,6 +1406,65 @@ CREATE TABLE stream_alerts(
 -- }}}
 
 
+-- Nowlist {{{
+
+CREATE TABLE nowlist_tasks(
+  userid BIGINT PRIMARY KEY,
+  name TEXT NOT NULL,
+  task TEXT NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL,
+  done_at TIMESTAMPTZ
+);
+
+-- }}}
+
+-- Shoutouts {{{
+
+CREATE TABLE shoutouts(
+  userid BIGINT PRIMARY KEY,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- }}}
+
+-- Counters {{{
+
+CREATE TABLE counters(
+  counterid SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX counters_name ON counters (name);
+
+CREATE TABLE counter_log(
+  entryid SERIAL PRIMARY KEY,
+  counterid INTEGER NOT NULL REFERENCES counters (counterid) ON UPDATE CASCADE ON DELETE CASCADE,
+  userid INTEGER NOT NULL,
+  value INTEGER NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  context_str TEXT
+);
+CREATE INDEX counter_log_counterid ON counter_log (counterid);
+-- }}}
+
+-- Tags {{{
+
+CREATE TABLE channel_tags(
+  tagid SERIAL PRIMARY KEY,
+  channelid BIGINT NOT NULL,
+  name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX channel_tags_channelid_name ON channel_tags (channelid, name);
+
+-- }}}
+
+
+
 -- Analytics Data {{{
 CREATE SCHEMA "analytics";
 
