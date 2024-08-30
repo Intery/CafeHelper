@@ -54,7 +54,10 @@ class MsgEditor(MessageUI):
         By default, uses the provided `formatter` callback (if provided).
         """
         if self._formatter is not None:
-            await self._formatter(data)
+            return await self._formatter(data)
+        else:
+            return data
+
 
     def copy_data(self):
         return copy.deepcopy(self.history[-1])
@@ -64,15 +67,8 @@ class MsgEditor(MessageUI):
 
     async def push_change(self, new_data):
         # Cleanup the data
-        if 'embed' in new_data:
-            pop_embed = True
-            embed_data = new_data['embed']
-            for key, value in embed_data.items():
-                if value:
-                    pop_embed = False
-                    break
-            if pop_embed:
-                new_data.pop('embed')
+        if (embed_data := new_data.get('embed', None)) is not None and not embed_data:
+            new_data.pop('embed')
 
         t = self.bot.translator.t
         if 'embed' not in new_data and not new_data.get('content', None):
@@ -85,7 +81,8 @@ class MsgEditor(MessageUI):
 
         if 'embed' in new_data:
             try:
-                discord.Embed.from_dict(new_data['embed'])
+                formatted_data = copy.deepcopy(new_data)
+                discord.Embed.from_dict(await self.format_data(formatted_data['embed']))
             except Exception as e:
                 raise UserInputError(
                     t(_p(
@@ -261,7 +258,7 @@ class MsgEditor(MessageUI):
             default=str(discord.Colour(value=embed_data['color'])) if 'color' in embed_data else '',
             placeholder=str(discord.Colour.orange()),
             max_length=7,
-            min_length=0
+            min_length=7
         )
 
         modal = MsgEditorInput(
@@ -452,8 +449,17 @@ class MsgEditor(MessageUI):
                 embed_data.pop('footer', None)
 
             if (ts := timestamp_field.value):
+                if ts.isdigit():
+                    # Treat as UTC timestamp
+                    timestamp = dt.datetime.fromtimestamp(int(ts), dt.timezone.utc)
+                    ts = timestamp.isoformat()
+                    to_validate = ts
+                elif self._formatter:
+                    to_validate = await self._formatter(ts)
+                else:
+                    to_validate = ts
                 try:
-                    dt.datetime.fromisoformat(ts)
+                    dt.datetime.fromisoformat(to_validate)
                 except ValueError:
                     raise UserInputError(
                         t(_p(
