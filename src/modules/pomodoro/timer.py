@@ -195,7 +195,8 @@ class Timer:
         Uses voice channel member cache as source-of-truth.
         """
         if (chan := self.channel):
-            members = [m for m in chan.members if not m.bot]
+            optout_role = self.guild.get_role(self.bot.config.cafe.getint('optoutrole'))
+            members = [m for m in chan.members if not m.bot and (optout_role not in m.roles)]
         else:
             members = []
         return members
@@ -437,7 +438,7 @@ class Timer:
                         )
                     tasks.append(asyncio.create_task(notify_hook.send(kick_message), name='kick-message'))
 
-            if self.voice_alerts:
+            if self.voice_alerts and self.members:
                 after_tasks.append(asyncio.create_task(self._voice_alert(to_stage), name='voice-alert'))
 
             for task in tasks:
