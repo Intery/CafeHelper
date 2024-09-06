@@ -26,12 +26,12 @@ active_discord = [
     '.premium',
     '.streamalerts',
     '.test',
+    '.counters',
 ]
 
 active_twitch = [
     '.nowdoing',
     '.shoutouts',
-    '.counters',
     '.tagstrings',
 ]
 
