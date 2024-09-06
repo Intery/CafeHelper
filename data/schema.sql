@@ -1485,6 +1485,73 @@ CREATE UNIQUE INDEX channel_tags_channelid_name ON channel_tags (channelid, name
 -- }}}
 
 
+-- User and Community Profiles {{{ 
+
+CREATE TABLE user_profiles(
+  profileid SERIAL PRIMARY KEY,
+  nickname TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE profiles_discord(
+  linkid SERIAL PRIMARY KEY,
+  profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
+  userid BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX profiles_discord_profileid ON profiles_discord (profileid);
+CREATE INDEX profiles_discord_userid ON profiles_discord (userid);
+
+CREATE TABLE profiles_twitch(
+  linkid SERIAL PRIMARY KEY,
+  profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
+  userid BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX profiles_twitch_profileid ON profiles_twitch (profileid);
+CREATE INDEX profiles_twitch_userid ON profiles_twitch (userid);
+
+CREATE TABLE communities(
+  communityid SERIAL PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE communities_discord(
+  guildid BIGINT PRIMARY KEY,
+  communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
+  linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX communities_discord_communityid ON communities_discord (communityid);
+
+CREATE TABLE communities_twitch(
+  channelid BIGINT PRIMARY KEY,
+  communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
+  linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX communities_twitch_communityid ON communities_twitch (communityid);
+
+CREATE TABLE community_members(
+  memberid SERIAL PRIMARY KEY,
+  communityid INTEGER NOT NULL REFERENCES communities (communityud) ON DELETE CASCADE ON UPDATE CASCADE,
+  profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+CREATE UNIQUE INDEX community_members_communityid_profileid ON community_members (communityid, profileid);
+-- }}}
+
+-- Twitch Auth {{
+CREATE TABLE twitch_tokens(
+  userid BIGINT PRIMARY KEY,
+  access_token TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  refresh_token TEXT NOT NULL,
+  obtained_at TIMESTAMPTZ
+);
+-- }}
+
+
+
+
 
 -- Analytics Data {{{
 CREATE SCHEMA "analytics";
