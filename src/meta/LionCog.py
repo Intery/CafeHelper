@@ -3,6 +3,7 @@ from typing import Any, Callable, Optional
 
 from discord.ext.commands import Cog
 from discord.ext import commands as cmds
+from twitchio.ext import commands
 from twitchio.ext.commands import Command, Bot
 from twitchio.ext.commands.meta import CogEvent
 
@@ -72,6 +73,24 @@ class LionCog(Cog):
             event_name = event or func.__name__
             return CogEvent(name=event_name, func=func, module=cls.__module__)
         return decorator
+
+    async def cog_check(self, ctx):  # type: ignore
+        """
+        TwitchIO assumes cog_check is a coroutine,
+        so here we narrow the check to only a coroutine.
+
+        The ctx maybe either be a twitch command context or a dpy context.
+        """
+        if isinstance(ctx, cmds.Context):
+            return await self.cog_check_discord(ctx)
+        if isinstance(ctx, commands.Context):
+            return await self.cog_check_twitch(ctx)
+
+    async def cog_check_discord(self, ctx: cmds.Context):
+        return True
+
+    async def cog_check_twitch(self, ctx: commands.Context):
+        return True
 
     @classmethod
     def placeholder_group(cls, group: cmds.HybridGroup):
