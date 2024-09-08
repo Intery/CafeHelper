@@ -6,16 +6,17 @@ import difflib
 import twitchio
 from twitchio.ext import commands
 
-from meta import CrocBot
+from meta import CrocBot, LionBot, LionCog
 from utils.lib import utc_now
 from . import logger
 from .data import TagData
 
 
-class TagCog(commands.Cog):
-    def __init__(self, bot: CrocBot):
+class TagCog(LionCog):
+    def __init__(self, bot: LionBot):
         self.bot = bot
-        self.data = bot.data.load_registry(TagData())
+        self.crocbot = bot.crocbot
+        self.data = bot.db.load_registry(TagData())
 
         self.loaded = asyncio.Event()
 
@@ -31,19 +32,24 @@ class TagCog(commands.Cog):
 
         self.tags.clear()
         self.tags.update(tags)
+        logger.info(f"Loaded {len(tags)} into cache.")
 
     async def cog_load(self):
         await self.data.init()
         await self.load_tags()
+        self._load_twitch_methods(self.crocbot)
         self.loaded.set()
 
-    async def ensure_loaded(self):
-        if not self.loaded.is_set():
-            await self.cog_load()
+    async def cog_unload(self):
+        self.loaded.clear()
+        self.tags.clear()
+        self._unload_twitch_methods(self.crocbot)
 
-    @commands.Cog.event('event_ready')
-    async def on_ready(self):
-        await self.ensure_loaded()
+    async def cog_check(self, ctx):
+        if not self.loaded.is_set():
+            await ctx.reply("Tasklists are still loading! Please wait a moment~")
+            return False
+        return True
 
     # API
 

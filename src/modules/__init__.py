@@ -26,19 +26,11 @@ active_discord = [
     '.premium',
     '.streamalerts',
     '.test',
-]
-
-active_twitch = [
+    '.counters',
     '.nowdoing',
     '.shoutouts',
-    '.counters',
     '.tagstrings',
 ]
-
-
-def prepare(bot):
-    for ext in active_twitch:
-        bot.load_module(this_package + ext)
 
 async def setup(bot):
     for ext in active_discord:

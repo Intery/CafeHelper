@@ -8,7 +8,8 @@ from attr import dataclass
 import twitchio
 from twitchio.ext import commands
 
-from meta import CrocBot
+from meta import CrocBot, LionCog
+from meta.LionBot import LionBot
 from meta.sockets import Channel, register_channel
 from utils.lib import strfdelta, utc_now
 from . import logger
@@ -78,10 +79,11 @@ class NowDoingChannel(Channel):
         })
 
 
-class NowDoingCog(commands.Cog):
-    def __init__(self, bot: CrocBot):
+class NowDoingCog(LionCog):
+    def __init__(self, bot: LionBot):
         self.bot = bot
-        self.data = bot.data.load_registry(NowListData())
+        self.crocbot = bot.crocbot
+        self.data = bot.db.load_registry(NowListData())
         self.channel = NowDoingChannel(self)
         register_channel(self.channel.name, self.channel)
 
@@ -94,21 +96,19 @@ class NowDoingCog(commands.Cog):
         await self.data.init()
 
         await self.load_tasks()
+
+        self._load_twitch_methods(self.crocbot)
         self.loaded.set()
 
-    async def ensure_loaded(self):
-        """
-        Hack because lib devs decided to remove async cog loading.
-        """
-        if not self.loaded.is_set():
-            await self.cog_load()
-
-    @commands.Cog.event('event_ready')  # type: ignore
-    async def on_ready(self):
-        await self.ensure_loaded()
+    async def cog_unload(self):
+        self.loaded.clear()
+        self.tasks.clear()
+        self._unload_twitch_methods(self.crocbot)
 
     async def cog_check(self, ctx):
-        await self.ensure_loaded()
+        if not self.loaded.is_set():
+            await ctx.reply("Tasklists are still loading! Please wait a moment~")
+            return False
         return True
 
     async def load_tasks(self):
@@ -130,6 +130,7 @@ class NowDoingCog(commands.Cog):
     @commands.command(aliases=['task', 'check'])
     async def now(self, ctx: commands.Context, *, args: Optional[str] = None):
         userid = int(ctx.author.id)
+        args = args.strip() if args else None
         if args:
             await self.data.Task.table.delete_where(userid=userid)
             task = await self.data.Task.create(

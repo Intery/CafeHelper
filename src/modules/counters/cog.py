@@ -3,11 +3,14 @@ from enum import Enum
 from typing import Optional
 from datetime import timedelta
 
+import discord
+from discord.ext import commands as cmds
 import twitchio
 from twitchio.ext import commands
 
+
 from data.queries import ORDER
-from meta import CrocBot
+from meta import LionCog, LionBot, CrocBot
 from utils.lib import utc_now
 from . import logger
 from .data import CounterData
@@ -22,10 +25,11 @@ class PERIOD(Enum):
     YEAR = ('this year', 'y', 'year', 'yearly')
 
 
-class CounterCog(commands.Cog):
-    def __init__(self, bot: CrocBot):
+class CounterCog(LionCog):
+    def __init__(self, bot: LionBot):
         self.bot = bot
-        self.data = bot.data.load_registry(CounterData())
+        self.crocbot: CrocBot = bot.crocbot
+        self.data = bot.db.load_registry(CounterData())
 
         self.loaded = asyncio.Event()
 
@@ -33,8 +37,17 @@ class CounterCog(commands.Cog):
         self.counters = {}
 
     async def cog_load(self):
+        self._load_twitch_methods(self.crocbot)
+
         await self.data.init()
+        await self.load_counters()
         self.loaded.set()
+
+    async def cog_unload(self):
+        self._unload_twitch_methods(self.crocbot)
+
+    async def cog_check(self, ctx):
+        return True
 
     async def load_counters(self):
         """
@@ -45,18 +58,6 @@ class CounterCog(commands.Cog):
         logger.info(
             f"Loaded {len(self.counters)} counters."
         )
-
-    async def ensure_loaded(self):
-        if not self.loaded.is_set():
-            await self.cog_load()
-
-    @commands.Cog.event('event_ready')  # type: ignore
-    async def on_ready(self):
-        await self.ensure_loaded()
-
-    async def cog_check(self, ctx):
-        await self.ensure_loaded()
-        return True
 
     # Counters API
 
@@ -171,7 +172,7 @@ class CounterCog(commands.Cog):
         if period is PERIOD.ALL:
             start_time = None
         elif period is PERIOD.STREAM:
-            streams = await self.bot.fetch_streams(user_ids=[userid])
+            streams = await self.crocbot.fetch_streams(user_ids=[userid])
             if streams:
                 stream = streams[0]
                 start_time = stream.started_at
@@ -199,7 +200,7 @@ class CounterCog(commands.Cog):
         lb = await self.leaderboard(counter, start_time=start_time)
         if lb:
             userids = list(lb.keys())
-            users = await self.bot.fetch_users(ids=userids)
+            users = await self.crocbot.fetch_users(ids=userids)
             name_map = {user.id: user.display_name for user in users}
             parts = []
             for userid, total in lb.items():
@@ -283,17 +284,9 @@ class CounterCog(commands.Cog):
         await ctx.reply(await self.formatted_lb('water', args, int(user.id)))
 
     @commands.command()
-    async def reload(self, ctx: commands.Context, *, args: str = ''):
-        if not (ctx.author.is_mod or ctx.author.is_broadcaster):
-            return
-        if not args:
-            await ctx.reply("Full reload not implemented yet.")
-        else:
-            try:
-                self.bot.reload_module(args)
-            except Exception:
-                logger.exception("Failed to reload")
-                await ctx.reply("Failed to reload module! Check console~")
-            else:
-                await ctx.reply("Reloaded!")
+    async def stuff(self, ctx: commands.Context, *, args: str = ''):
+        await ctx.reply(f"Stuff {args}")
 
+    @cmds.hybrid_command('water')
+    async def d_water_cmd(self, ctx):
+        await ctx.reply(repr(ctx))
