@@ -80,6 +80,14 @@ async def main():
             websockets.serve(sockets.root_handler, '', conf.wserver['port'])
         )
 
+        crocbot = CrocBot(
+            config=conf,
+            data=db,
+            prefix='!',
+            initial_channels=conf.croccy.getlist('initial_channels'),
+            token=conf.croccy['token'],
+        )
+
         lionbot = await stack.enter_async_context(
             LionBot(
                 command_prefix='!',
@@ -104,26 +112,15 @@ async def main():
                 translator=translator,
                 chunk_guilds_at_startup=False,
                 system_monitor=system_monitor,
+                crocbot=crocbot,
             )
         )
-
-        crocbot = CrocBot(
-            config=conf,
-            data=db,
-            prefix='!',
-            initial_channels=conf.croccy.getlist('initial_channels'),
-            token=conf.croccy['token'],
-            lionbot=lionbot
-        )
-        lionbot.crocbot = crocbot
-
-        crocbot.load_module('modules')
 
         crocstart = asyncio.create_task(start_croccy(crocbot))
         lionstart = asyncio.create_task(start_lion(lionbot))
         await asyncio.wait((crocstart, lionstart), return_when=asyncio.FIRST_COMPLETED)
-        crocstart.cancel()
-        lionstart.cancel()
+        # crocstart.cancel()
+        # lionstart.cancel()
 
 async def start_lion(lionbot):
     ctx_bot.set(lionbot)

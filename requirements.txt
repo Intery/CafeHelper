@@ -11,3 +11,6 @@ pillow
 python-dateutil
 bidict
 frozendict
+TwitchIO
+websockets
+TwitchAPI

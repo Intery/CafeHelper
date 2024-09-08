@@ -24,6 +24,7 @@ from .errors import HandledException, SafeCancellation
 from .monitor import SystemMonitor, ComponentMonitor, StatusLevel, ComponentStatus
 
 if TYPE_CHECKING:
+    from meta.CrocBot import CrocBot
     from core.cog import CoreCog
     from core.config import ConfigCog
     from tracking.voice.cog import VoiceTrackerCog
@@ -58,6 +59,7 @@ class LionBot(Bot):
         initial_extensions: List[str], web_client: ClientSession, app_ipc,
         testing_guilds: List[int] = [],
         system_monitor: Optional[SystemMonitor] = None,
+        crocbot: Optional['CrocBot'] = None,
         **kwargs
     ):
         kwargs.setdefault('tree_cls', LionTree)
@@ -72,6 +74,8 @@ class LionBot(Bot):
         self.config = config
         self.app_ipc = app_ipc
         self.translator = translator
+
+        self.crocbot = crocbot
 
         self.system_monitor = system_monitor or SystemMonitor()
         self.monitor = ComponentMonitor('LionBot', self._monitor_status)
