@@ -28,10 +28,10 @@ active_discord = [
     '.test',
     '.counters',
     '.nowdoing',
+    '.shoutouts',
 ]
 
 active_twitch = [
-    '.shoutouts',
     '.tagstrings',
 ]
 
