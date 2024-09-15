@@ -47,16 +47,32 @@ class TimerChannel(Channel):
         super().__init__(**kwargs)
         self.cog = cog
 
+        self.channelid = 1261999440160624734
+        self.goal = 12
+
     async def on_connection(self, websocket, event):
         await super().on_connection(websocket, event)
-        timer = self.cog.get_channel_timer(1261999440160624734)
-        if timer is not None:
-            await self.send_set(
-                timer.data.last_started,
-                timer.data.focus_length,
-                timer.data.break_length,
-                websocket=websocket,
-            )
+        await self.send_set(
+            **await self.get_args_for(self.channelid),
+            goal=self.goal,
+            websocket=websocket,
+        )
+
+    async def send_updates(self):
+        await self.send_set(
+            **await self.get_args_for(self.channelid),
+            goal=self.goal,
+        )
+
+    async def get_args_for(self, channelid):
+        timer = self.cog.get_channel_timer(channelid)
+        if timer is None:
+            raise ValueError(f"Timer {channelid} doesn't exist.")
+        return {
+            'start_at': timer.data.last_started,
+            'focus_length': timer.data.focus_length,
+            'break_length': timer.data.break_length,
+        }
 
     async def send_set(self, start_at, focus_length, break_length, goal=12, websocket=None):
         await self.send_event({
@@ -1059,8 +1075,18 @@ class TimerCog(LionCog):
     @low_management_ward
     async def streamtimer_update_cmd(self, ctx: LionContext,
                                      new_start: Optional[str] = None,
-                                     new_goal: int = 12):
-        timer = self.get_channel_timer(1261999440160624734)
+                                     new_goal: Optional[int] = None,
+                                     new_channel: Optional[discord.VoiceChannel] = None,
+                                     ):
+        if new_channel is not None:
+            channelid = self.channel.channelid = new_channel.id
+        else:
+            channelid = self.channel.channelid
+
+        if new_goal is not None:
+            self.channel.goal = new_goal
+
+        timer = self.get_channel_timer(channelid)
         if timer is None:
             return
         if new_start:
@@ -1068,10 +1094,5 @@ class TimerCog(LionCog):
             start_at = await self.bot.get_cog('Reminders').parse_time_static(new_start, timezone)
             await timer.data.update(last_started=start_at)
 
-        await self.channel.send_set(
-            timer.data.last_started,
-            timer.data.focus_length,
-            timer.data.break_length,
-            goal=new_goal,
-        )
+        await self.channel.send_updates()
         await ctx.reply("Stream Timer Updated")
