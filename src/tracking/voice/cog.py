@@ -681,17 +681,14 @@ class VoiceTrackerCog(LionCog):
     )
     @appcmds.guild_only
     async def now_cmd(self, ctx: LionContext,
-                      tag: Optional[appcmds.Range[str, 0, 10]] = None,
+                      tag: Optional[appcmds.Range[str, 0, 75]] = None,
                       user: Optional[discord.Member] = None,
                       clear: Optional[bool] = None
                       ):
         if not ctx.guild:
             return
-        if not ctx.interaction:
-            return
         t = self.bot.translator.t
 
-        await ctx.interaction.response.defer(thinking=True, ephemeral=True)
         is_moderator = await moderator_ctxward(ctx)
         target = user if user is not None else ctx.author
         session = self.get_session(ctx.guild.id, target.id, create=False)
@@ -715,7 +712,7 @@ class VoiceTrackerCog(LionCog):
                         "{mention} has no running session!"
                     )).format(mention=target.mention)
                 )
-            await ctx.interaction.edit_original_response(embed=error)
+            await ctx.reply(embed=error)
             return
 
         if clear:
@@ -841,7 +838,7 @@ class VoiceTrackerCog(LionCog):
                 description=desc,
                 timestamp=utc_now()
             )
-        await ctx.interaction.edit_original_response(embed=ack)
+        await ctx.reply(embed=ack)
 
     # ----- Configuration Commands -----
     @LionCog.placeholder_group
