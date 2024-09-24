@@ -1485,6 +1485,24 @@ CREATE UNIQUE INDEX channel_tags_channelid_name ON channel_tags (channelid, name
 -- }}}
 
 
+-- Twitch User Auth {{{
+CREATE TABLE twitch_user_auth(
+  userid TEXT PRIMARY KEY,
+  access_token TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  refresh_token TEXT NOT NULL,
+  obtained_at TIMESTAMPTZ
+);
+
+
+CREATE TABLE twitch_user_scopes(
+  userid TEXT REFERENCES twitch_user_auth (userid) ON DELETE CASCADE ON UPDATE CASCADE,
+  scope TEXT
+);
+CREATE INDEX twitch_user_scopes_userid ON twitch_user_scopes (userid);
+
+-- }}}
+
 
 -- Analytics Data {{{
 CREATE SCHEMA "analytics";

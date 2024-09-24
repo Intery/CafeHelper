@@ -1,4 +1,5 @@
 from typing import Optional
+import datetime as dt
 
 from aiohttp import web
 
@@ -9,6 +10,7 @@ from twitchAPI.type import AuthType
 from twitchio.client import asyncio
 
 from meta.errors import SafeCancellation
+from utils.lib import utc_now
 from .data import TwitchAuthData
 from . import logger
 
@@ -52,12 +54,12 @@ class UserAuthFlow:
             raise ValueError("UserAuthFlow running with no comm task! This should be impossible.")
 
         result = await self._comm_task
-        if result['error']:
+        if result.get('error', None):
             # TODO Custom auth errors
             # This is only documented to occure when the user denies the auth
             raise SafeCancellation(f"Could not authenticate user! Reason: {result['error_description']}")
 
-        if result['state'] != self.auth.state:
+        if result.get('state', None) != self.auth.state:
             # This should never happen unless the authserver has its wires crossed somehow,
             # or the connection has been tampered with.
             # TODO: Consider terminating for safety in this case? Or at least refusing more auth requests.
@@ -76,9 +78,11 @@ class UserAuthFlow:
         # Fetch the associated userid and basic info
         v_result = await validate_token(token)
         userid = v_result['user_id']
+        expiry = utc_now() + dt.timedelta(seconds=v_result['expires_in'])
 
         # Save auth data
-
-    async def save_auth(self, userid: str, token: str, refresh: str, scopes: list[str]):
-        if not self.data._conn:
-            raise ValueError("Provided registry must be connected.")
+        return await self.data.UserAuthRow.update_user_auth(
+            userid=userid, token=token, refresh=refresh,
+            expires_at=expiry, obtained_at=utc_now(),
+            scopes=[scope.value for scope in self.auth.scopes]
+        )
