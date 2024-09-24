@@ -98,6 +98,7 @@ async def main():
                 config=conf,
                 initial_extensions=[
                     'utils', 'core', 'analytics',
+                    'twitch',
                     'modules',
                     'babel',
                     'tracking.voice', 'tracking.text',
