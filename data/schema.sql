@@ -1539,18 +1539,22 @@ CREATE TABLE community_members(
 CREATE UNIQUE INDEX community_members_communityid_profileid ON community_members (communityid, profileid);
 -- }}}
 
--- Twitch Auth {{
-CREATE TABLE twitch_tokens(
-  userid BIGINT PRIMARY KEY,
+-- Twitch User Auth {{{
+CREATE TABLE twitch_user_auth(
+  userid TEXT PRIMARY KEY,
   access_token TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   refresh_token TEXT NOT NULL,
   obtained_at TIMESTAMPTZ
 );
--- }}
 
+CREATE TABLE twitch_user_scopes(
+  userid TEXT REFERENCES twitch_user_auth (userid) ON DELETE CASCADE ON UPDATE CASCADE,
+  scope TEXT
+);
+CREATE INDEX twitch_user_scopes_userid ON twitch_user_scopes (userid);
 
-
+-- }}}
 
 
 -- Analytics Data {{{

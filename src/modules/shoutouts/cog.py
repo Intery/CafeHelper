@@ -4,50 +4,50 @@ from typing import Optional
 import twitchio
 from twitchio.ext import commands
 
-from meta import CrocBot
+from meta import CrocBot, LionBot, LionCog
 from utils.lib import replace_multiple
 from . import logger
 from .data import ShoutoutData
 
 
-class ShoutoutCog(commands.Cog):
+class ShoutoutCog(LionCog):
     # Future extension: channel defaults and config
     DEFAULT_SHOUTOUT = """
     We think that {name} is a great streamer and you should check them out \
     and drop a follow! \
     They {areorwere} streaming {game} at {channel}
     """
-    def __init__(self, bot: CrocBot):
+    def __init__(self, bot: LionBot):
         self.bot = bot
-        self.data = bot.data.load_registry(ShoutoutData())
+        self.crocbot = bot.crocbot
+        self.data = bot.db.load_registry(ShoutoutData())
 
         self.loaded = asyncio.Event()
 
     async def cog_load(self):
         await self.data.init()
+        self._load_twitch_methods(self.crocbot)
         self.loaded.set()
 
-    async def ensure_loaded(self):
-        if not self.loaded.is_set():
-            await self.cog_load()
-
-    @commands.Cog.event('event_ready')  # type: ignore
-    async def on_ready(self):
-        await self.ensure_loaded()
+    async def cog_unload(self):
+        self.loaded.clear()
+        self._unload_twitch_methods(self.crocbot)
 
     async def cog_check(self, ctx):
-        await self.ensure_loaded()
+        if not self.loaded.is_set():
+            await ctx.reply("Tasklists are still loading! Please wait a moment~")
+            return False
         return True
 
     async def format_shoutout(self, text: str, user: twitchio.User):
-        channels = await self.bot.fetch_channels([user.id])
+        channels = await self.crocbot.fetch_channels([user.id])
         if channels:
             channel = channels[0]
             game = channel.game_name or 'Unknown'
         else:
             game = 'Unknown'
 
-        streams = await self.bot.fetch_streams([user.id])
+        streams = await self.crocbot.fetch_streams([user.id])
         live = bool(streams)
 
         mapping = {

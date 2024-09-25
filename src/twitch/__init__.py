@@ -2,7 +2,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from .cog import CounterCog
+from .cog import TwitchAuthCog
 
 async def setup(bot):
-    await bot.add_cog(CounterCog(bot))
+    await bot.add_cog(TwitchAuthCog(bot))
+
