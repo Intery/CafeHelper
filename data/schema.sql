@@ -1505,11 +1505,12 @@ CREATE INDEX profiles_discord_userid ON profiles_discord (userid);
 CREATE TABLE profiles_twitch(
   linkid SERIAL PRIMARY KEY,
   profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
-  userid BIGINT NOT NULL,
+  userid TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX profiles_twitch_profileid ON profiles_twitch (profileid);
 CREATE INDEX profiles_twitch_userid ON profiles_twitch (userid);
+
 
 CREATE TABLE communities(
   communityid SERIAL PRIMARY KEY,
@@ -1524,7 +1525,7 @@ CREATE TABLE communities_discord(
 CREATE UNIQUE INDEX communities_discord_communityid ON communities_discord (communityid);
 
 CREATE TABLE communities_twitch(
-  channelid BIGINT PRIMARY KEY,
+  channelid TEXT PRIMARY KEY,
   communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
   linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -1532,10 +1533,10 @@ CREATE UNIQUE INDEX communities_twitch_communityid ON communities_twitch (commun
 
 CREATE TABLE community_members(
   memberid SERIAL PRIMARY KEY,
-  communityid INTEGER NOT NULL REFERENCES communities (communityud) ON DELETE CASCADE ON UPDATE CASCADE,
+  communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
   profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-)
+);
 CREATE UNIQUE INDEX community_members_communityid_profileid ON community_members (communityid, profileid);
 -- }}}
 

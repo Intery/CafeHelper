@@ -41,6 +41,12 @@ class ProfileData(Registry):
         userid = Integer()
         created_at = Integer()
 
+        @classmethod
+        async def fetch_profile(cls, profileid: int):
+            rows = await cls.fetch_where(profiled=profileid)
+            return next(rows, None)
+
+
     class TwitchProfileRow(RowModel):
         """
         Schema
@@ -48,7 +54,7 @@ class ProfileData(Registry):
         CREATE TABLE profiles_twitch(
           linkid SERIAL PRIMARY KEY,
           profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
-          userid BIGINT NOT NULL,
+          userid TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE UNIQUE INDEX profiles_twitch_profileid ON profiles_twitch (profileid);
@@ -59,8 +65,13 @@ class ProfileData(Registry):
 
         linkid = Integer(primary=True)
         profileid = Integer()
-        userid = Integer()
+        userid = String()
         created_at = Timestamp()
+
+        @classmethod
+        async def fetch_profile(cls, profileid: int):
+            rows = await cls.fetch_where(profiled=profileid)
+            return next(rows, None)
 
     class CommunityRow(RowModel):
         """
@@ -95,12 +106,17 @@ class ProfileData(Registry):
         communityid = Integer()
         linked_at = Timestamp()
 
+        @classmethod
+        async def fetch_community(cls, communityid: int):
+            rows = await cls.fetch_where(communityd=communityid)
+            return next(rows, None)
+
     class TwitchCommunityRow(RowModel):
         """
         Schema
         ------
         CREATE TABLE communities_twitch(
-          channelid BIGINT PRIMARY KEY,
+          channelid TEXT PRIMARY KEY,
           communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
           linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -109,9 +125,14 @@ class ProfileData(Registry):
         _tablename_ = 'communities_twitch'
         _cache_ = {}
 
-        channelid = Integer(primary=True)
+        channelid = String(primary=True)
         communityid = Integer()
         linked_at = Timestamp()
+
+        @classmethod
+        async def fetch_community(cls, communityid: int):
+            rows = await cls.fetch_where(communityd=communityid)
+            return next(rows, None)
 
     class CommunityMemberRow(RowModel):
         """
@@ -119,10 +140,10 @@ class ProfileData(Registry):
         ------
         CREATE TABLE community_members(
           memberid SERIAL PRIMARY KEY,
-          communityid INTEGER NOT NULL REFERENCES communities (communityud) ON DELETE CASCADE ON UPDATE CASCADE,
+          communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
           profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
+        );
         CREATE UNIQUE INDEX community_members_communityid_profileid ON community_members (communityid, profileid);
         """
         _tablename_ = 'community_members'
