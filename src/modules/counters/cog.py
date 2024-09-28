@@ -139,32 +139,6 @@ class CounterCog(LionCog):
 
         logger.info(f"(Re)Loaded {len(rows)} counter commands!")
 
-
-
-        # commands = {
-        #     'stuff': (
-        #         'stuffcounter',
-        #         'stufflb',
-        #         "Good luck with {detailsorname}! We have done {total} stuffs {period_name}."
-        #     ),
-        #     'water': (
-        #         'water',
-        #         'waterlb',
-        #         "Good job hydrating! We have had {total} cups of tea {period_name}."
-        #     ),
-        #     'coffee': (
-        #         'coffee',
-        #         'coffeelb',
-        #         "Enjoy your {detailsorname}! We have had {total} cups of coffee {period_name}."
-        #     ),
-        #     'tea': (
-        #         'tea',
-        #         'tealb',
-        #         "Enjoy your {detailsorname}! We have had {total} cups of tea this {period_name}."
-        #     ),
-        # }
-        
-
     async def cog_check(self, ctx):
         return True
 
