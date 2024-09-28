@@ -10,7 +10,8 @@ class CounterData(Registry):
         CREATE TABLE counters(
             counterid SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            category TEXT
         );
         CREATE UNIQUE INDEX counters_name ON counters (name);
         """
@@ -19,6 +20,7 @@ class CounterData(Registry):
 
         counterid = Integer(primary=True)
         name = String()
+        category = String()
         created_at = Timestamp()
 
     class CounterEntry(RowModel):
@@ -31,7 +33,8 @@ class CounterData(Registry):
             userid INTEGER NOT NULL,
             value INTEGER NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            context_str TEXT
+            context_str TEXT,
+            details TEXT
         );
         CREATE INDEX counter_log_counterid ON counter_log (counterid);
         """
@@ -44,5 +47,28 @@ class CounterData(Registry):
         value = Integer()
         created_at = Timestamp()
         context_str = String()
+        details = String()
 
+    class CounterCommand(RowModel):
+        """
+        Schema
+        ------
+        CREATE TABLE counter_commands(
+            name TEXT PRIMARY KEY,
+            counterid INTEGER NOT NULL REFERENCES counters (counterid) ON UPDATE CASCADE ON DELETE CASCADE,
+            lbname TEXT,
+            undoname TEXT,
+            response TEXT NOT NULL
+        );
+        """
+        # NOTE: This table will be replaced by aliases soon anyway
+        # So no need to worry about integrity or future-proofing
+        _tablename_ = 'counter_commands'
+        _cache_ = {}
+
+        name = String(primary=True)
+        counterid = Integer()
+        lbname = String()
+        undoname = String()
+        response = String()
 
