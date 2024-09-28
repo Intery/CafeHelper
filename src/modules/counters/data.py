@@ -49,3 +49,26 @@ class CounterData(Registry):
         context_str = String()
         details = String()
 
+    class CounterCommand(RowModel):
+        """
+        Schema
+        ------
+        CREATE TABLE counter_commands(
+            name TEXT PRIMARY KEY,
+            counterid INTEGER NOT NULL REFERENCES counters (counterid) ON UPDATE CASCADE ON DELETE CASCADE,
+            lbname TEXT,
+            undoname TEXT,
+            response TEXT NOT NULL
+        );
+        """
+        # NOTE: This table will be replaced by aliases soon anyway
+        # So no need to worry about integrity or future-proofing
+        _tablename_ = 'counter_commands'
+        _cache_ = {}
+
+        name = String(primary=True)
+        counterid = Integer()
+        lbname = String()
+        undoname = String()
+        response = String()
+
