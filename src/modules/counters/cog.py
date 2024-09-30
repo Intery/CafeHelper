@@ -35,7 +35,7 @@ def counter_cmd_factory(
     async def counter_cmd(cog, ctx: commands.Context, *, args: Optional[str] = None):
         userid = int(ctx.author.id)
         channelid = int((await ctx.channel.user()).id)
-        period, start_time = await cog.parse_period(userid, '', default=default_period)
+        period, start_time = await cog.parse_period(channelid, '', default=default_period)
 
         args = (args or '').strip(" 󠀀 ")
         splits = args.split(maxsplit=1)
