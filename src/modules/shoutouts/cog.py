@@ -17,9 +17,19 @@ class ShoutoutCog(LionCog):
     and drop a follow! \
     They {areorwere} streaming {game} at {channel}
     """
+    COWO_SHOUTOUT = """
+    We think that {name} is a great coworker and you should check them out for more productive vibes! \
+    They {areorwere} streaming {game} at {channel}
+    """
+    ART_SHOUTOUT = """
+    We think that {name} is an awesome artist and you should check them out for cool art and cosy vibes! \
+    They {areorwere} streaming {game} at {channel}
+    """
+
     def __init__(self, bot: LionBot):
         self.bot = bot
-        self.crocbot = bot.crocbot
+        self.crocbot: CrocBot = bot.crocbot
+
         self.data = bot.db.load_registry(ShoutoutData())
 
         self.loaded = asyncio.Event()
@@ -59,19 +69,28 @@ class ShoutoutCog(LionCog):
         return replace_multiple(text, mapping)
 
     @commands.command(aliases=['so'])
-    async def shoutout(self, ctx: commands.Context, user: twitchio.User):
+    async def shoutout(self, ctx: commands.Context, target: str, typ: Optional[str]=None):
         # Make sure caller is mod/broadcaster
         # Lookup custom shoutout for this user
         # If it exists use it, otherwise use default shoutout
         if (ctx.author.is_mod or ctx.author.is_broadcaster):
-            data = await self.data.CustomShoutout.fetch(int(user.id))
-            if data:
-                shoutout = data.content
+            user = await self.crocbot.seek_user(target)
+            if user is None:
+                await ctx.reply(f"Couldn't resolve '{target}' to a valid user.")
             else:
-                shoutout = self.DEFAULT_SHOUTOUT
-            formatted = await self.format_shoutout(shoutout, user)
-            await ctx.reply(formatted)
+                data = await self.data.CustomShoutout.fetch(int(user.id))
+                if data:
+                    shoutout = data.content
+                elif typ == 'cowo':
+                    shoutout = self.COWO_SHOUTOUT
+                elif typ == 'art':
+                    shoutout = self.ART_SHOUTOUT
+                else:
+                    shoutout = self.DEFAULT_SHOUTOUT
+                formatted = await self.format_shoutout(shoutout, user)
+                await ctx.reply(formatted)
             # TODO: How to /shoutout with lib?
+            # TODO Shoutout queue
 
     @commands.command()
     async def editshoutout(self, ctx: commands.Context, user: twitchio.User, *, text: str):
