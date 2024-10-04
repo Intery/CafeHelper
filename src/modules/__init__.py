@@ -30,6 +30,7 @@ active_discord = [
     '.nowdoing',
     '.shoutouts',
     '.tagstrings',
+    '.voiceroles',
 ]
 
 async def setup(bot):

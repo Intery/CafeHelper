@@ -1486,6 +1486,16 @@ CREATE UNIQUE INDEX channel_tags_channelid_name ON channel_tags (channelid, name
 
 -- }}}
 
+-- Voice Roles {{{
+CREATE TABLE voice_roles(
+  voice_role_id SERIAL PRIMARY KEY,
+  channelid BIGINT NOT NULL,
+  roleid BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX voice_role_channels on voice_roles (channelid);
+
+-- }}}
 
 
 -- Analytics Data {{{
