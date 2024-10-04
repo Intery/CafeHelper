@@ -47,6 +47,27 @@ class LionCog(Cog):
 
         return await super()._inject(bot, *args, *kwargs)
 
+    def add_twitch_command(self, bot: Bot, command: Command):
+        """
+        Dynamically register a command with the given bot.
+
+        The command will be deregistered on cog unload.
+        """
+        # Remove any conflicting commands
+        if cmd := bot.get_command(command.name):
+            bot.remove_command(cmd.name)
+            self._twitch_cmds_.pop(command.name, None)
+
+        try:
+            self._twitch_cmds_[command.name] = command
+            command._instance = self
+            command.cog = self
+            bot.add_command(command)
+        except Exception:
+            # Ensure the command doesn't die in the internal command cache
+            self._twitch_cmds_.pop(command.name, None)
+            raise
+
     def _load_twitch_methods(self, bot: Bot):
         for name, command in self._twitch_cmds_.items():
             command._instance = self

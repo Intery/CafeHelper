@@ -25,6 +25,75 @@ class PERIOD(Enum):
     YEAR = ('this year', 'y', 'year', 'yearly')
 
 
+def counter_cmd_factory(
+    counter: str,
+    response: str,
+    default_period: Optional[PERIOD] = PERIOD.STREAM,
+    context: Optional[str] = None
+):
+    context = context or f"cmd: {counter}"
+    async def counter_cmd(cog, ctx: commands.Context, *, args: Optional[str] = None):
+        userid = int(ctx.author.id)
+        channelid = int((await ctx.channel.user()).id)
+        period, start_time = await cog.parse_period(channelid, '', default=default_period)
+
+        args = (args or '').strip(" 󠀀 ")
+        splits = args.split(maxsplit=1)
+        splits = [split.strip() for split in splits if split]
+
+        details = None
+        amount = 1
+        
+        if splits:
+            if splits[0].isdigit() or (splits[0].startswith('-') and splits[0][1:].isdigit()):
+                amount = int(splits[0])
+                splits = splits[1:]
+            if splits:
+                details = ' '.join(splits)
+
+        await cog.add_to_counter(
+            counter, userid, amount,
+            context=context,
+            details=details
+        )
+        lb = await cog.leaderboard(counter, start_time=start_time)
+        user_total = lb.get(userid, 0)
+        total = sum(lb.values())
+        await ctx.reply(
+            response.format(
+                total=total,
+                period=period,
+                period_name=period.value[0],
+                detailsorname=details or counter,
+                user_total=user_total,
+            )
+        )
+
+    async def lb_cmd(cog, ctx: commands.Context, *, args: str = ''):
+        user = await ctx.channel.user()
+        await ctx.reply(await cog.formatted_lb(counter, args, int(user.id)))
+
+    async def undo_cmd(cog, ctx: commands.Context):
+        userid = int(ctx.author.id)
+        channelid = int((await ctx.channel.user()).id)
+        _counter = await cog.fetch_counter(counter)
+        query = cog.data.CounterEntry.fetch_where(
+            counterid=_counter.counterid,
+            userid=userid,
+        )
+        query.order_by('created_at', direction=ORDER.DESC)
+        query.limit(1)
+        results = await query
+        if not results:
+            await ctx.reply("Nothing to delete!")
+        else:
+            row = results[0]
+            await row.delete()
+            await ctx.reply("Undo successful!")
+
+    return (counter_cmd, lb_cmd, undo_cmd)
+
+
 class CounterCog(LionCog):
     def __init__(self, bot: LionBot):
         self.bot = bot
@@ -38,6 +107,7 @@ class CounterCog(LionCog):
 
     async def cog_load(self):
         self._load_twitch_methods(self.crocbot)
+        await self.load_counter_commands()
 
         await self.data.init()
         await self.load_counters()
@@ -45,6 +115,29 @@ class CounterCog(LionCog):
 
     async def cog_unload(self):
         self._unload_twitch_methods(self.crocbot)
+
+    async def load_counter_commands(self):
+        rows = await self.data.CounterCommand.fetch_where()
+        for row in rows:
+            counter = await self.data.Counter.fetch(row.counterid)
+            counter_cb, lb_cb, undo_cb = counter_cmd_factory(
+                counter.name,
+                row.response
+            )
+            cmds = []
+            main_cmd = commands.command(name=row.name)(counter_cb)
+            cmds.append(main_cmd)
+            if row.lbname:
+                lb_cmd = commands.command(name=row.lbname)(lb_cb)
+                cmds.append(lb_cmd)
+            if row.undoname:
+                undo_cmd = commands.command(name=row.undoname)(undo_cb)
+                cmds.append(undo_cmd)
+
+            for cmd in cmds:
+                self.add_twitch_command(self.crocbot, cmd)
+
+        logger.info(f"(Re)Loaded {len(rows)} counter commands!")
 
     async def cog_check(self, ctx):
         return True
@@ -80,13 +173,19 @@ class CounterCog(LionCog):
         if row:
             await self.data.CounterEntry.table.delete_where(counterid=row.counterid)
 
-    async def add_to_counter(self, counter: str, userid: int, value: int, context: Optional[str]=None):
+    async def add_to_counter(
+        self,
+        counter: str, userid: int, value: int,
+        context: Optional[str]=None,
+        details: Optional[str]=None,
+    ):
         row = await self.fetch_counter(counter)
         return await self.data.CounterEntry.create(
             counterid=row.counterid,
             userid=userid,
             value=value,
-            context_str=context
+            context_str=context,
+            details=details
         )
 
     async def leaderboard(self, counter: str, start_time=None):
@@ -155,8 +254,43 @@ class CounterCog(LionCog):
         elif subcmd == 'clear':
             await self.reset_counter(name)
             await ctx.reply(f"'{name}' counter reset.")
+        elif subcmd == 'alias':
+            splits = args.split(maxsplit=3) if args else []
+            counter = await self.fetch_counter(name)
+            rows = await self.data.CounterCommand.fetch_where(counterid=counter.counterid)
+            existing = rows[0] if rows else None
+            if existing and not args:
+                # Show current alias
+                await ctx.reply(
+                    f"Counter '{name}' aliases: '!{existing.name}' to add to counter; "
+                    f"'!{existing.lbname}' to view counter leaderboard; "
+                    f"'!{existing.undoname}' to undo (your) last addition."
+                )
+            elif len(splits) < 4:
+                # Show usage
+                await ctx.reply(
+                    "USAGE: !counter <name> alias <cmdname> <lbname> <undoname> <response> -- "
+                    "Response accepts keywords {total}, {period}, {period_name}, {detailsorname}, {user_total}."
+                )
+            else:
+                # Create new alias
+                cmdname, lbname, undoname, response = splits
+                # Remove any existing alias
+                await self.data.CounterCommand.table.delete_where(name=cmdname)
+
+                alias = await self.data.CounterCommand.create(
+                    name=cmdname,
+                    counterid=counter.counterid,
+                    lbname=lbname, undoname=undoname, response=response
+                )
+                await self.load_counter_commands()
+                await ctx.reply(
+                    f"Alias created for counter '{name}': '!{alias.name}' to add to counter; "
+                    f"'!{alias.lbname}' to view counter leaderboard; "
+                    f"'!{alias.undoname}' to undo (your) last addition."
+                )
         else:
-            await ctx.reply(f"Unrecognised subcommand {subcmd}. Supported subcommands: 'show', 'add', 'lb', 'clear'.")
+            await ctx.reply(f"Unrecognised subcommand {subcmd}. Supported subcommands: 'show', 'add', 'lb', 'clear', 'alias'.")
 
     async def parse_period(self, userid: int, periodstr: str, default=PERIOD.STREAM):
         if periodstr:
@@ -211,82 +345,3 @@ class CounterCog(LionCog):
             return f"{counter} {period.value[-1]} leaderboard --- {lbstr}"
         else:
             return f"{counter} {period.value[-1]} leaderboard is empty!"
-
-    # Misc actual counter commands
-    # TODO: Factor this out to a different module...
-    @commands.command()
-    async def tea(self, ctx: commands.Context, *, args: Optional[str]=None):
-        userid = int(ctx.author.id)
-        channelid = int((await ctx.channel.user()).id)
-        period, start_time = await self.parse_period(channelid, '')
-        counter = 'tea'
-
-        await self.add_to_counter(
-            counter,
-            userid,
-            1,
-            context='cmd: tea'
-        )
-        lb = await self.leaderboard(counter, start_time=start_time)
-        user_total = lb.get(userid, 0)
-        total = sum(lb.values())
-        await ctx.reply(f"Enjoy your tea! We have had {total} cups of tea {period.value[0]}.")
-        
-    @commands.command()
-    async def tealb(self, ctx: commands.Context, *, args: str = ''):
-        user = await ctx.channel.user()
-        await ctx.reply(await self.formatted_lb('tea', args, int(user.id)))
-
-    @commands.command()
-    async def coffee(self, ctx: commands.Context, *, args: Optional[str]=None):
-        userid = int(ctx.author.id)
-        channelid = int((await ctx.channel.user()).id)
-        period, start_time = await self.parse_period(channelid, '')
-        counter = 'coffee'
-
-        await self.add_to_counter(
-            counter,
-            userid,
-            1,
-            context='cmd: coffee'
-        )
-        lb = await self.leaderboard(counter, start_time=start_time)
-        user_total = lb.get(userid, 0)
-        total = sum(lb.values())
-        await ctx.reply(f"Enjoy your coffee! We have had {total} cups of coffee {period.value[0]}.")
-        
-    @commands.command()
-    async def coffeelb(self, ctx: commands.Context, *, args: str = ''):
-        user = await ctx.channel.user()
-        await ctx.reply(await self.formatted_lb('coffee', args, int(user.id)))
-
-    @commands.command()
-    async def water(self, ctx: commands.Context, *, args: Optional[str]=None):
-        userid = int(ctx.author.id)
-        channelid = int((await ctx.channel.user()).id)
-        period, start_time = await self.parse_period(channelid, '')
-        counter = 'water'
-
-        await self.add_to_counter(
-            counter,
-            userid,
-            1,
-            context='cmd: water'
-        )
-        lb = await self.leaderboard(counter, start_time=start_time)
-        user_total = lb.get(userid, 0)
-        total = sum(lb.values())
-        await ctx.reply(f"Good job hydrating! We have had {total} cups of water {period.value[0]}.")
-
-    @commands.command()
-    async def waterlb(self, ctx: commands.Context, *, args: str = ''):
-        user = await ctx.channel.user()
-        await ctx.reply(await self.formatted_lb('water', args, int(user.id)))
-
-    @commands.command()
-    async def stuff(self, ctx: commands.Context, *, args: str = ''):
-        await ctx.reply(f"Stuff {args}")
-
-    @cmds.hybrid_command('water')
-    async def d_water_cmd(self, ctx):
-        await ctx.reply(repr(ctx))

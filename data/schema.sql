@@ -1454,6 +1454,7 @@ CREATE TABLE shoutouts(
 CREATE TABLE counters(
   counterid SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
+  category TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX counters_name ON counters (name);
@@ -1464,6 +1465,7 @@ CREATE TABLE counter_log(
   userid INTEGER NOT NULL,
   value INTEGER NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  details TEXT,
   context_str TEXT
 );
 CREATE INDEX counter_log_counterid ON counter_log (counterid);
@@ -1484,6 +1486,16 @@ CREATE UNIQUE INDEX channel_tags_channelid_name ON channel_tags (channelid, name
 
 -- }}}
 
+-- Voice Roles {{{
+CREATE TABLE voice_roles(
+  voice_role_id SERIAL PRIMARY KEY,
+  channelid BIGINT NOT NULL,
+  roleid BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX voice_role_channels on voice_roles (channelid);
+
+-- }}}
 
 -- User and Community Profiles {{{ 
 

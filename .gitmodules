@@ -1,12 +1,12 @@
 [submodule "bot/gui"]
 	path = src/gui
-	url = https://github.com/StudyLions/StudyLion-Plugin-GUI.git
+	url = git@github.com:Intery/CafeHelper-GUI.git
 [submodule "skins"]
 	path = skins
-	url = https://github.com/Intery/pillow-skins.git
+	url = git@github.com:Intery/CafeHelper-Skins.git
 [submodule "src/modules/voicefix"]
 	path = src/modules/voicefix
-	url = https://github.com/Intery/StudyLion-voicefix.git
+	url = git@github.com:Intery/StudyLion-voicefix.git
 [submodule "src/modules/streamalerts"]
 	path = src/modules/streamalerts
 	url = https://github.com/Intery/StudyLion-streamalerts.git

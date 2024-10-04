@@ -5,7 +5,7 @@ import datetime as dt
 
 import discord
 from discord.ext import commands as cmds
-from discord import app_commands as appcmds
+from discord import AllowedMentions, app_commands as appcmds
 
 from data import Condition
 from meta import LionBot, LionCog, LionContext
@@ -668,7 +668,7 @@ class VoiceTrackerCog(LionCog):
     @appcmds.describe(
         tag=_p(
             'cmd:now|param:tag|desc',
-            "Describe what you are working on in 10 characters or less!"
+            "Describe what you are working!"
         ),
         user=_p(
             'cmd:now|param:user|desc',
@@ -681,17 +681,15 @@ class VoiceTrackerCog(LionCog):
     )
     @appcmds.guild_only
     async def now_cmd(self, ctx: LionContext,
-                      tag: Optional[appcmds.Range[str, 0, 10]] = None,
+                      tag: Optional[str] = None,
+                      *,
                       user: Optional[discord.Member] = None,
                       clear: Optional[bool] = None
                       ):
         if not ctx.guild:
             return
-        if not ctx.interaction:
-            return
         t = self.bot.translator.t
 
-        await ctx.interaction.response.defer(thinking=True, ephemeral=True)
         is_moderator = await moderator_ctxward(ctx)
         target = user if user is not None else ctx.author
         session = self.get_session(ctx.guild.id, target.id, create=False)
@@ -715,7 +713,7 @@ class VoiceTrackerCog(LionCog):
                         "{mention} has no running session!"
                     )).format(mention=target.mention)
                 )
-            await ctx.interaction.edit_original_response(embed=error)
+            await ctx.reply(embed=error)
             return
 
         if clear:
@@ -723,87 +721,27 @@ class VoiceTrackerCog(LionCog):
             if target == ctx.author:
                 # Clear the author's tag
                 await session.set_tag(None)
-                ack = discord.Embed(
-                    colour=discord.Colour.brand_green(),
-                    title=t(_p(
-                        'cmd:now|target:self|mode:clear|success|title',
-                        "Session Tag Cleared"
-                    )),
-                    description=t(_p(
-                        'cmd:now|target:self|mode:clear|success|desc',
-                        "Successfully unset your session tag."
-                    ))
-                )
+                ack = "Cleared your current task!"
             elif not is_moderator:
                 # Trying to clear someone else's tag without being a moderator
-                ack = discord.Embed(
-                    colour=discord.Colour.brand_red(),
-                    title=t(_p(
-                        'cmd:now|target:other|mode:clear|error:perms|title',
-                        "You can't do that!"
-                    )),
-                    description=t(_p(
-                        'cmd:now|target:other|mode:clear|error:perms|desc',
-                        "You need to be a moderator to set or clear someone else's session tag."
-                    ))
-                )
+                ack = "You need to be a moderator to set or clear someone else's task!"
             else:
                 # Clearing someone else's tag as a moderator
                 await session.set_tag(None)
-                ack = discord.Embed(
-                    colour=discord.Colour.brand_green(),
-                    title=t(_p(
-                        'cmd:now|target:other|mode:clear|success|title',
-                        "Session Tag Cleared!"
-                    )),
-                    description=t(_p(
-                        'cmd:now|target:other|mode:clear|success|desc',
-                        "Cleared {target}'s session tag."
-                    )).format(target=target.mention)
-                )
+                ack = f"Cleared {target}'s current task!"
         elif tag:
             # Tag setting mode
             if target == ctx.author:
                 # Set the author's tag
                 await session.set_tag(tag)
-                ack = discord.Embed(
-                    colour=discord.Colour.brand_green(),
-                    title=t(_p(
-                        'cmd:now|target:self|mode:set|success|title',
-                        "Session Tag Set!"
-                    )),
-                    description=t(_p(
-                        'cmd:now|target:self|mode:set|success|desc',
-                        "You are now working on `{new_tag}`. Good luck!"
-                    )).format(new_tag=tag)
-                )
+                ack = f"Set your current task to `{tag}`, good luck! <:goodluck:1266447460146876497>"
             elif not is_moderator:
                 # Trying the set someone else's tag without being a moderator
-                ack = discord.Embed(
-                    colour=discord.Colour.brand_red(),
-                    title=t(_p(
-                        'cmd:now|target:other|mode:set|error:perms|title',
-                        "You can't do that!"
-                    )),
-                    description=t(_p(
-                        'cmd:now|target:other|mode:set|error:perms|desc',
-                        "You need to be a moderator to set or clear someone else's session tag!"
-                    ))
-                )
+                ack = "You need to be a moderator to set or clear someone else's task!"
             else:
                 # Setting someone else's tag as a moderator
                 await session.set_tag(tag)
-                ack = discord.Embed(
-                    colour=discord.Colour.brand_green(),
-                    title=t(_p(
-                        'cmd:now|target:other|mode:set|success|title',
-                        "Session Tag Set!"
-                    )),
-                    description=t(_p(
-                        'cmd:now|target:other|mode:set|success|desc',
-                        "Set {target}'s session tag to `{new_tag}`."
-                    )).format(target=target.mention, new_tag=tag)
-                )
+                ack = f"Set {target}'s current task to `{tag}`"
         else:
             # Display tag and voice time
             if target == ctx.author:
@@ -815,14 +753,14 @@ class VoiceTrackerCog(LionCog):
                 else:
                     desc = t(_p(
                         'cmd:now|target:self|mode:show_without_tag|desc',
-                        "You have been working in {channel} since {time}!\n\n"
+                        "You have been working in {channel} since {time}! "
                         "Use `/now <tag>` to set what you are working on."
                     ))
             else:
                 if session.tag:
                     desc = t(_p(
                         'cmd:now|target:other|mode:show_with_tag|desc',
-                        "{target} is current working in {channel}!\n"
+                        "{target} is current working in {channel}! "
                         "They have been working on **{tag}** since {time}."
                     ))
                 else:
@@ -830,18 +768,13 @@ class VoiceTrackerCog(LionCog):
                         'cmd:now|target:other|mode:show_without_tag|desc',
                         "{target} has been working in {channel} since {time}!"
                     ))
-            desc = desc.format(
+            ack = desc.format(
                 tag=session.tag,
                 channel=f"<#{session.state.channelid}>",
-                time=discord.utils.format_dt(session.start_time, 't'),
+                time=discord.utils.format_dt(session.start_time, 'R'),
                 target=target.mention,
             )
-            ack = discord.Embed(
-                colour=discord.Colour.orange(),
-                description=desc,
-                timestamp=utc_now()
-            )
-        await ctx.interaction.edit_original_response(embed=ack)
+        await ctx.reply(ack, allowed_mentions=AllowedMentions.none())
 
     # ----- Configuration Commands -----
     @LionCog.placeholder_group
