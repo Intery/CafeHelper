@@ -1535,6 +1535,7 @@ CREATE UNIQUE INDEX profiles_twitch_userid ON profiles_twitch (userid);
 
 CREATE TABLE communities(
   communityid SERIAL PRIMARY KEY,
+  migrated INTEGER REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

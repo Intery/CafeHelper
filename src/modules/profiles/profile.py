@@ -64,7 +64,7 @@ class UserProfile:
         """
         return await self.data.DiscordProfileRow.fetch_where(profileid=self.profileid)
 
-    async def twitch_accounts(self) -> list[ProfileData.DiscordProfileRow]:
+    async def twitch_accounts(self) -> list[ProfileData.TwitchProfileRow]:
         """
         Fetch the Twitch accounts associated to this profile.
         """
@@ -87,7 +87,7 @@ class UserProfile:
     @classmethod
     async def fetch_from_discordid(cls, bot: LionBot, userid: int) -> Optional[Self]:
         data = bot.get_cog('ProfileCog').data
-        rows = await data.DiscordProfileRow.fetch_where(userid=str(userid))
+        rows = await data.DiscordProfileRow.fetch_where(userid=(userid))
         if rows:
             return await cls.fetch(bot, rows[0].profileid)
 

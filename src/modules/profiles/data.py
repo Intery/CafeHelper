@@ -82,6 +82,7 @@ class ProfileData(Registry):
         ------
         CREATE TABLE communities(
           communityid SERIAL PRIMARY KEY,
+          migrated INTEGER REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         """
@@ -89,6 +90,7 @@ class ProfileData(Registry):
         _cache_ = {}
 
         communityid = Integer(primary=True)
+        migrated = Integer()
         created_at = Timestamp()
 
     class DiscordCommunityRow(RowModel):

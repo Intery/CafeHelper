@@ -76,4 +76,4 @@ class TwitchAuthData(Registry):
     );
     CREATE INDEX twitch_user_scopes_userid ON twitch_user_scopes (userid);
     """
-    user_scopes = Table('twitch_token_scopes')
+    user_scopes = Table('twitch_user_scopes')
