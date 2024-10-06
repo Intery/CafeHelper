@@ -4,16 +4,20 @@ import json
 import os
 from typing import Optional
 
-from attr import dataclass
+import discord
+from discord.ext import commands as cmds
+from discord import app_commands as appcmds
+
 import twitchio
 from twitchio.ext import commands
 
-from meta import CrocBot, LionCog
-from meta.LionBot import LionBot
+from meta import CrocBot, LionCog, LionContext, LionBot
 from meta.sockets import Channel, register_channel
 from utils.lib import strfdelta, utc_now
 from . import logger
 from .data import NowListData
+
+from modules.profiles.profile import UserProfile
 
 
 class NowDoingChannel(Channel):
@@ -82,7 +86,7 @@ class NowDoingChannel(Channel):
 class NowDoingCog(LionCog):
     def __init__(self, bot: LionBot):
         self.bot = bot
-        self.crocbot = bot.crocbot
+        self.crocbot: CrocBot = bot.crocbot
         self.data = bot.db.load_registry(NowListData())
         self.channel = NowDoingChannel(self)
         register_channel(self.channel.name, self.channel)
@@ -127,10 +131,9 @@ class NowDoingCog(LionCog):
         else:
             await ctx.send(f"Hello {ctx.author.name}! I don't think you have permission to test that.")
 
-    @commands.command(aliases=['task', 'check'])
-    async def now(self, ctx: commands.Context, *, args: Optional[str] = None):
-        userid = int(ctx.author.id)
+    async def now(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str] = None):
         args = args.strip() if args else None
+        userid = profile.profileid
         if args:
             await self.data.Task.table.delete_where(userid=userid)
             task = await self.data.Task.create(
@@ -141,7 +144,7 @@ class NowDoingCog(LionCog):
             )
             self.tasks[task.userid] = task
             await self.channel.send_set(*self.channel.task_args(task))
-            await ctx.send(f"Updated your current task, good luck!")
+            await ctx.send("Updated your current task, good luck!")
         elif task := self.tasks.get(userid, None):
             if task.is_done:
                 done_ago = strfdelta(utc_now() - task.done_at)
@@ -159,9 +162,24 @@ class NowDoingCog(LionCog):
                 "Show what you are currently working on with, e.g. !now Reading notes"
             )
 
-    @commands.command(name='next')
-    async def nownext(self, ctx: commands.Context, *, args: Optional[str] = None): 
-        userid = int(ctx.author.id)
+    @commands.command(
+        name='now',
+        aliases=['task', 'check']
+    )
+    async def twi_now(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.now(ctx, profile, args)
+
+    @cmds.hybrid_command(
+        name='now',
+        aliases=['task', 'check']
+    )
+    async def disc_now(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.now(ctx, profile, args)
+
+    async def nownext(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str]): 
+        userid = profile.profileid
         task = self.tasks.get(userid, None)
         if args:
             if task:
@@ -200,9 +218,22 @@ class NowDoingCog(LionCog):
                 "Show what you are currently working on with, e.g. !now Reading notes"
             )
 
-    @commands.command()
-    async def done(self, ctx: commands.Context):
-        userid = int(ctx.author.id)
+    @commands.command(
+        name='next',
+    )
+    async def twi_next(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.nownext(ctx, profile, args)
+
+    @cmds.hybrid_command(
+        name='next',
+    )
+    async def disc_next(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.nownext(ctx, profile, args)
+
+    async def done(self, ctx: commands.Context | LionContext, profile: UserProfile):
+        userid = profile.profileid
         if task := self.tasks.get(userid, None):
             if task.is_done:
                 await ctx.send(
@@ -221,6 +252,20 @@ class NowDoingCog(LionCog):
                 "You don't have a task on the tasklist! "
                 "Show what you are currently working on with, e.g. !now Reading notes"
             )
+
+    @commands.command(
+        name='done',
+    )
+    async def twi_done(self, ctx: commands.Context):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.done(ctx, profile)
+
+    @cmds.hybrid_command(
+        name='done',
+    )
+    async def disc_done(self, ctx: LionContext):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.done(ctx, profile)
 
     @commands.command()
     async def clear(self, ctx: commands.Context):
