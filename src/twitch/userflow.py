@@ -47,7 +47,7 @@ class UserAuthFlow:
                 self._setup_done.set()
                 return await ws.receive_json()
 
-    async def run(self):
+    async def run(self) -> TwitchAuthData.UserAuthRow:
         if not self._setup_done.is_set():
             raise ValueError("Cannot run UserAuthFlow before setup.")
         if self._comm_task is None:

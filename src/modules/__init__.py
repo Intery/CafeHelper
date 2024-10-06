@@ -2,6 +2,7 @@ this_package = 'modules'
 
 active_discord = [
     '.sysadmin',
+    '.profiles',
     '.config',
     '.user_config',
     '.skins',

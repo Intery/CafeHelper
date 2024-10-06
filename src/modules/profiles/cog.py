@@ -1,75 +1,35 @@
 import asyncio
 from enum import Enum
-from typing import Optional
+from typing import Optional, overload
 from datetime import timedelta
 
 import discord
 from discord.ext import commands as cmds
 import twitchio
 from twitchio.ext import commands
+from twitchio import User
 from twitchAPI.object.api import TwitchUser
 
 
 from data.queries import ORDER
-from meta import LionCog, LionBot, CrocBot
+from meta import LionCog, LionBot, CrocBot, LionContext
+from meta.logger import log_wrap
 from utils.lib import utc_now
 from . import logger
 from .data import ProfileData
-
-
-class UserProfile:
-    def __init__(self, data, profile_row, *, discord_row=None, twitch_row=None):
-        self.data: ProfileData = data
-        self.profile_row: ProfileData.UserProfileRow = profile_row
-
-        self.discord_row: Optional[ProfileData.DiscordProfileRow] = discord_row
-        self.twitch_row: Optional[ProfileData.TwitchProfileRow] = twitch_row
-
-    @property
-    def profileid(self):
-        return self.profile_row.profileid
-
-    async def attach_discord(self, user: discord.User | discord.Member):
-        """
-        Attach a new discord user to this profile.
-        """
-        # TODO: Attach whatever other data we want to cache here.
-        # Currently Lion also caches most of this data
-        discord_row = await self.data.DiscordProfileRow.create(
-            profileid=self.profileid, 
-            userid=user.id
-        )
-
-    async def attach_twitch(self, user: TwitchUser):
-        """
-        Attach a new Twitch user to this profile.
-        """
-        ...
-
-    @classmethod
-    async def fetch_profile(
-            cls, data: ProfileData, 
-            *,
-            profile_id: Optional[int] = None,
-            profile_row: Optional[ProfileData.UserProfileRow] = None,
-            discord_row: Optional[ProfileData.DiscordProfileRow] = None,
-            twitch_row: Optional[ProfileData.TwitchProfileRow] = None,
-    ):
-        if not any((profile_id, profile_row, discord_row, twitch_row)):
-            raise ValueError("UserProfile needs an id or a data row to construct.")
-        if profile_id is None:
-            profile_id = (profile_row or discord_row or twitch_row).profileid
-        profile_row = profile_row or await data.UserProfileRow.fetch(profile_id)
-        discord_row = discord_row or await data.DiscordProfileRow.fetch_profile(profile_id)
-        twitch_row = twitch_row or await data.TwitchProfileRow.fetch_profile(profile_id)
-
-        return cls(data, profile_row, discord_row=discord_row, twitch_row=twitch_row)
+from .profile import UserProfile
 
 
 class ProfileCog(LionCog):
     def __init__(self, bot: LionBot):
         self.bot = bot
+
+        assert bot.crocbot is not None
+        self.crocbot: CrocBot = bot.crocbot
         self.data = bot.db.load_registry(ProfileData())
+
+        self._profile_migrators = {}
+        self._comm_migrators = {}
 
     async def cog_load(self):
         await self.data.init()
@@ -78,34 +38,84 @@ class ProfileCog(LionCog):
         return True
 
     # Profile API
-    async def fetch_profile_discord(self, userid: int, create=True):
-        """
-        Fetch or create a UserProfile from the given Discord userid.
-        """
-        # TODO: (Extension) May be context dependent
-        # Current model assumes profile (one->0..n) discord
-        discord_row = next(await self.data.DiscordProfileRow.fetch_where(userid=userid), None)
-        if discord_row is None:
-            profile_row = await self.data.UserProfileRow.create()
+    def add_profile_migrator(self, migrator, name=None):
+        name = name or migrator.__name__
+        self._profile_migrators[name or migrator.__name__] = migrator
 
-    async def fetch_profile_twitch(self, userid: int, create=True):
-        """
-        Fetch or create a UserProfile from the given Twitch userid.
-        """
-        ...
+        logger.info(
+            f"Added user profile migrator {name}: {migrator}"
+        )
+        return migrator
 
-    async def fetch_profile(self, profileid: int):
+    def del_profile_migrator(self, name: str):
+        migrator = self._profile_migrators.pop(name, None)
+
+        logger.info(
+            f"Removed user profile migrator {name}: {migrator}"
+        )
+
+    @log_wrap(action="profile migration")
+    async def migrate_profile(self, source_profile, target_profile) -> list[str]:
+        logger.info(
+            f"Beginning user profile migration from {source_profile!r} to {target_profile!r}"
+        )
+        results = []
+        # Wrap this in a transaction so if something goes wrong with migration,
+        # we roll back safely (although this may mess up caches)
+        async with self.bot.db.connection() as conn:
+            self.bot.db.conn = conn
+            async with conn.transaction():
+                for name, migrator in self._profile_migrators.items():
+                    try:
+                        result = await migrator(source_profile, target_profile)
+                        if result:
+                            results.append(result)
+                    except Exception:
+                        logger.exception(
+                            f"Unexpected exception running user profile migrator {name} "
+                            f"migrating {source_profile!r} to {target_profile!r}."
+                        )
+                        raise
+
+                # Move all Discord and Twitch profile references over to the new profile
+                discord_rows = await self.data.DiscordProfileRow.table.update_where(
+                    profileid=source_profile.profileid
+                ).set(profileid=target_profile.profileid)
+                results.append(f"Migrated {len(discord_rows)} attached discord account(s).")
+
+                twitch_rows = await self.data.TwitchProfileRow.table.update_where(
+                    profileid=source_profile.profileid
+                ).set(profileid=target_profile.profileid)
+                results.append(f"Migrated {len(twitch_rows)} attached twitch account(s).")
+
+                # And then mark the old profile as migrated
+                await source_profile.update(migrate=target_profile.profileid)
+                results.append("Marking old profile as migrated.. finished!")
+        return results
+
+    async def fetch_profile_by_id(self, profile_id: int) -> UserProfile:
         """
         Fetch a UserProfile by the given id.
         """
-        ...
+        return await UserProfile.fetch_profile(self.bot, profile_id=profile_id)
 
-    async def merge_profiles(self, sourceid: int, targetid: int):
+    async def fetch_profile_discord(self, user: discord.Member | discord.User) -> UserProfile:
         """
-        Merge two UserProfiles by id.
-        Merges the 'sourceid' into the 'targetid'.
+        Fetch or create a UserProfile from the provided discord account.
         """
-        ...
+        profile = await UserProfile.fetch_from_discordid(user.id)
+        if profile is None:
+            profile = await UserProfile.create_from_discord(user)
+        return profile
+
+    async def fetch_profile_twitch(self, user: twitchio.User) -> UserProfile:
+        """
+        Fetch or create a UserProfile from the provided twitch account.
+        """
+        profile = await UserProfile.fetch_from_twitchid(user.id)
+        if profile is None:
+            profile = await UserProfile.create_from_twitch(user)
+        return profile
 
     async def fetch_community_discord(self, guildid: int, create=True):
         ...
@@ -118,4 +128,95 @@ class ProfileCog(LionCog):
 
     # ----- Profile Commands -----
 
-    # Link twitch profile
+    @cmds.hybrid_group(
+        name='profiles',
+        description="Base comand group for user profiles."
+    )
+    async def profiles_grp(self, ctx: LionContext):
+        ...
+
+    @profiles_grp.group(
+        name='link',
+        description="Base command group for linking profiles"
+    )
+    async def profiles_link_grp(self, ctx: LionContext):
+        ...
+
+    @profiles_link_grp.command(
+        name='twitch',
+        description="Link a twitch account to your current profile."
+    )
+    async def profiles_link_twitch_cmd(self, ctx: LionContext):
+        if not ctx.interaction:
+            return
+
+        await ctx.interaction.response.defer(ephemeral=True)
+
+        # Ask the user to go through auth to get their userid
+        auth_cog = self.bot.get_cog('TwitchAuthCog')
+        flow = await auth_cog.start_auth()
+        message = await ctx.reply(
+            f"Please [click here]({flow.auth.return_auth_url()}) to link your profile "
+            "to Twitch."
+        )
+        authrow = await flow.run()
+        await message.edit(
+            content="Authentication Complete! Beginning profile merge..."
+        )
+
+        results = await self.crocbot.fetch_users(ids=[authrow.userid])
+        if not results:
+            logger.error(
+                f"User {authrow} obtained from Twitch authentication does not exist."
+            )
+            await ctx.error_reply("Sorry, something went wrong. Please try again later!")
+
+        user = results[0]
+
+        # Retrieve author's profile if it exists
+        author_profile = await UserProfile.fetch_from_discordid(self.bot, ctx.author.id)
+
+        # Check if the twitch-side user has a profile 
+        source_profile = await UserProfile.fetch_from_twitchid(self.bot, user.id)
+
+        if author_profile and source_profile is None:
+            # All we need to do is attach the twitch row
+            await author_profile.attach_twitch(user)
+            await message.edit(
+                content=f"Successfully added Twitch account **{user.name}**! There was no profile data to merge."
+            )
+        elif source_profile and author_profile is None:
+            # Attach the discord row to the profile
+            await source_profile.attach_discord(ctx.author)
+            await message.edit(
+                content=f"Successfully connect to Twitch profile **{user.name}**! There was no profile data to merge."
+            )
+        elif source_profile is None and author_profile is None:
+            profile = await UserProfile.create_from_discord(self.bot, ctx.author)
+            await profile.attach_twitch(user)
+
+            await message.edit(
+                content=f"Opened a new user profile for you and linked Twitch account **{user.name}**."
+            )
+        elif author_profile.profileid == source_profile.profileid:
+            await message.edit(
+                content=f"The Twitch account **{user.name}** is already linked to your profile!"
+            )
+        else:
+            # Migrate the existing profile data to the new profiles
+            try:
+                results = await self.migrate_profile(source_profile, author_profile)
+            except Exception:
+                await ctx.error_reply(
+                    "An issue was encountered while merging your account profiles!\n"
+                    "Migration rolled back, no data has been lost.\n"
+                    "The developer has been notified. Please try again later!"
+                )
+                raise
+
+            content = '\n'.join((
+                "## Connecting Twitch account and merging profiles...",
+                *results,
+                "**Successfully linked account and merge profile data!**"
+            ))
+            await message.edit(content=content)

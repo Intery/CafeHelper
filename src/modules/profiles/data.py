@@ -10,6 +10,7 @@ class ProfileData(Registry):
         CREATE TABLE user_profiles(
             profileid SERIAL PRIMARY KEY,
             nickname TEXT,
+            migrated INTEGER REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         """
@@ -18,7 +19,9 @@ class ProfileData(Registry):
 
         profileid = Integer(primary=True)
         nickname = String()
+        migrated = Integer()
         created_at = Timestamp()
+
 
     class DiscordProfileRow(RowModel):
         """
@@ -30,8 +33,8 @@ class ProfileData(Registry):
           userid BIGINT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE UNIQUE INDEX profiles_discord_profileid ON profiles_discord (profileid);
-        CREATE INDEX profiles_discord_userid ON profiles_discord (userid);
+        CREATE INDEX profiles_discord_profileid ON profiles_discord (profileid);
+        CREATE UNIQUE INDEX profiles_discord_userid ON profiles_discord (userid);
         """
         _tablename_ = 'profiles_discord'
         _cache_ = {}
@@ -57,8 +60,8 @@ class ProfileData(Registry):
           userid TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE UNIQUE INDEX profiles_twitch_profileid ON profiles_twitch (profileid);
-        CREATE INDEX profiles_twitch_userid ON profiles_twitch (userid);
+        CREATE INDEX profiles_twitch_profileid ON profiles_twitch (profileid);
+        CREATE UNIQUE INDEX profiles_twitch_userid ON profiles_twitch (userid);
         """
         _tablename_ = 'profiles_twitch'
         _cache_ = {}
@@ -97,7 +100,6 @@ class ProfileData(Registry):
           communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
           linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE UNIQUE INDEX communities_discord_communityid ON communities_discord (communityid);
         """
         _tablename_ = 'communities_discord'
         _cache_ = {}
@@ -120,7 +122,6 @@ class ProfileData(Registry):
           communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
           linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE UNIQUE INDEX communities_twitch_communityid ON communities_twitch (communityid);
         """
         _tablename_ = 'communities_twitch'
         _cache_ = {}

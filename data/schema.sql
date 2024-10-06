@@ -1498,10 +1498,19 @@ CREATE INDEX voice_role_channels on voice_roles (channelid);
 -- }}}
 
 -- User and Community Profiles {{{ 
+DROP TABLE IF EXISTS community_members;
+DROP TABLE IF EXISTS communities_twitch;
+DROP TABLE IF EXISTS communities_discord;
+DROP TABLE IF EXISTS communities;
+DROP TABLE IF EXISTS profiles_twitch;
+DROP TABLE IF EXISTS profiles_discord;
+DROP TABLE IF EXISTS user_profiles;
+
 
 CREATE TABLE user_profiles(
   profileid SERIAL PRIMARY KEY,
   nickname TEXT,
+  migrated INTEGER REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1511,8 +1520,8 @@ CREATE TABLE profiles_discord(
   userid BIGINT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE UNIQUE INDEX profiles_discord_profileid ON profiles_discord (profileid);
-CREATE INDEX profiles_discord_userid ON profiles_discord (userid);
+CREATE INDEX profiles_discord_profileid ON profiles_discord (profileid);
+CREATE UNIQUE INDEX profiles_discord_userid ON profiles_discord (userid);
 
 CREATE TABLE profiles_twitch(
   linkid SERIAL PRIMARY KEY,
@@ -1520,8 +1529,8 @@ CREATE TABLE profiles_twitch(
   userid TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE UNIQUE INDEX profiles_twitch_profileid ON profiles_twitch (profileid);
-CREATE INDEX profiles_twitch_userid ON profiles_twitch (userid);
+CREATE INDEX profiles_twitch_profileid ON profiles_twitch (profileid);
+CREATE UNIQUE INDEX profiles_twitch_userid ON profiles_twitch (userid);
 
 
 CREATE TABLE communities(
@@ -1534,14 +1543,14 @@ CREATE TABLE communities_discord(
   communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
   linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE UNIQUE INDEX communities_discord_communityid ON communities_discord (communityid);
+CREATE INDEX communities_discord_communityid ON communities_discord (communityid);
 
 CREATE TABLE communities_twitch(
   channelid TEXT PRIMARY KEY,
   communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
   linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE UNIQUE INDEX communities_twitch_communityid ON communities_twitch (communityid);
+CREATE INDEX communities_twitch_communityid ON communities_twitch (communityid);
 
 CREATE TABLE community_members(
   memberid SERIAL PRIMARY KEY,
