@@ -1497,6 +1497,88 @@ CREATE INDEX voice_role_channels on voice_roles (channelid);
 
 -- }}}
 
+-- User and Community Profiles {{{ 
+DROP TABLE IF EXISTS community_members;
+DROP TABLE IF EXISTS communities_twitch;
+DROP TABLE IF EXISTS communities_discord;
+DROP TABLE IF EXISTS communities;
+DROP TABLE IF EXISTS profiles_twitch;
+DROP TABLE IF EXISTS profiles_discord;
+DROP TABLE IF EXISTS user_profiles;
+
+
+CREATE TABLE user_profiles(
+  profileid SERIAL PRIMARY KEY,
+  nickname TEXT,
+  migrated INTEGER REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE profiles_discord(
+  linkid SERIAL PRIMARY KEY,
+  profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
+  userid BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX profiles_discord_profileid ON profiles_discord (profileid);
+CREATE UNIQUE INDEX profiles_discord_userid ON profiles_discord (userid);
+
+CREATE TABLE profiles_twitch(
+  linkid SERIAL PRIMARY KEY,
+  profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
+  userid TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX profiles_twitch_profileid ON profiles_twitch (profileid);
+CREATE UNIQUE INDEX profiles_twitch_userid ON profiles_twitch (userid);
+
+
+CREATE TABLE communities(
+  communityid SERIAL PRIMARY KEY,
+  migrated INTEGER REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE communities_discord(
+  guildid BIGINT PRIMARY KEY,
+  communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
+  linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX communities_discord_communityid ON communities_discord (communityid);
+
+CREATE TABLE communities_twitch(
+  channelid TEXT PRIMARY KEY,
+  communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
+  linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX communities_twitch_communityid ON communities_twitch (communityid);
+
+CREATE TABLE community_members(
+  memberid SERIAL PRIMARY KEY,
+  communityid INTEGER NOT NULL REFERENCES communities (communityid) ON DELETE CASCADE ON UPDATE CASCADE,
+  profileid INTEGER NOT NULL REFERENCES user_profiles (profileid) ON DELETE CASCADE ON UPDATE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX community_members_communityid_profileid ON community_members (communityid, profileid);
+-- }}}
+
+-- Twitch User Auth {{{
+CREATE TABLE twitch_user_auth(
+  userid TEXT PRIMARY KEY,
+  access_token TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  refresh_token TEXT NOT NULL,
+  obtained_at TIMESTAMPTZ
+);
+
+CREATE TABLE twitch_user_scopes(
+  userid TEXT REFERENCES twitch_user_auth (userid) ON DELETE CASCADE ON UPDATE CASCADE,
+  scope TEXT
+);
+CREATE INDEX twitch_user_scopes_userid ON twitch_user_scopes (userid);
+
+-- }}}
+
 
 -- Analytics Data {{{
 CREATE SCHEMA "analytics";

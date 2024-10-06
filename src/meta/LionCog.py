@@ -22,6 +22,7 @@ class LionCog(Cog):
         cls._placeholder_groups_ = set()
         cls._twitch_cmds_ = {}
         cls._twitch_events_ = {}
+        cls._twitch_events_loaded_ = set()
 
         for base in reversed(cls.__mro__):
             for elem, value in base.__dict__.items():

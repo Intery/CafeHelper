@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from meta.CrocBot import CrocBot
     from core.cog import CoreCog
     from core.config import ConfigCog
+    from twitch.cog import TwitchAuthCog
     from tracking.voice.cog import VoiceTrackerCog
     from tracking.text.cog import TextTrackerCog
     from modules.config.cog import GuildConfigCog
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     from modules.topgg.cog import TopggCog
     from modules.user_config.cog import UserConfigCog
     from modules.video_channels.cog import VideoCog
+    from modules.profiles.cog import ProfileCog
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +145,10 @@ class LionBot(Bot):
     # TODO: Move this to stubs at some point
 
     @overload
+    def get_cog(self, name: Literal['ProfileCog']) -> 'ProfileCog':
+        ...
+
+    @overload
     def get_cog(self, name: Literal['CoreCog']) -> 'CoreCog':
         ...
 
@@ -152,6 +158,10 @@ class LionBot(Bot):
 
     @overload
     def get_cog(self, name: Literal['VoiceTrackerCog']) -> 'VoiceTrackerCog':
+        ...
+
+    @overload
+    def get_cog(self, name: Literal['TwitchAuthCog']) -> 'TwitchAuthCog':
         ...
 
     @overload
