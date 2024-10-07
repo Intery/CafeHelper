@@ -8,10 +8,12 @@ from gui.cards import FocusTimerCard, BreakTimerCard
 if TYPE_CHECKING:
     from .timer import Timer, Stage
     from tracking.voice.cog import VoiceTrackerCog
+    from modules.nowdoing.cog import NowDoingCog
 
 
 async def get_timer_card(bot: LionBot, timer: 'Timer', stage: 'Stage'):
     voicecog: 'VoiceTrackerCog' = bot.get_cog('VoiceTrackerCog')
+    nowcog: 'NowDoingCog' = bot.get_cog('NowDoingCog')
 
     name = timer.base_name
     if stage is not None:
@@ -23,16 +25,22 @@ async def get_timer_card(bot: LionBot, timer: 'Timer', stage: 'Stage'):
     card_users = []
     guildid = timer.data.guildid
     for member in timer.members:
-        if voicecog is not None:
-            session = voicecog.get_session(guildid, member.id)
-            tag = session.tag
-            if session.start_time:
-                session_duration = (utc_now() - session.start_time).total_seconds()
-            else:
-                session_duration = 0
+        profile = await bot.get_cog('ProfileCog').fetch_profile_discord(member)
+        task = nowcog.tasks.get(profile.profileid, None)
+        tag = ''
+        session_duration = 0
+
+        if task:
+            tag = task.task
+            session_duration = ((task.done_at or utc_now()) - task.started_at).total_seconds()
         else:
-            session_duration = 0
-            tag = None
+            session = voicecog.get_session(guildid, member.id)
+            if session:
+                tag = session.tag
+                if session.start_time:
+                    session_duration = (utc_now() - session.start_time).total_seconds()
+                else:
+                    session_duration = 0
 
         card_user = (
             (member.id, (member.avatar or member.default_avatar).key),
