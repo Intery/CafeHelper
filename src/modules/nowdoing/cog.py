@@ -194,16 +194,17 @@ class NowDoingCog(LionCog):
         else:
             await ctx.send(f"Hello {ctx.author.name}! I don't think you have permission to test that.")
 
-    async def now(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str] = None):
+    async def now(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str] = None, edit=False):
         args = args.strip() if args else None
         userid = profile.profileid
         if args:
+            existing = self.tasks.get(userid, None)
             await self.data.Task.table.delete_where(userid=userid)
             task = await self.data.Task.create(
                 userid=userid,
                 name=ctx.author.display_name,
                 task=args,
-                started_at=utc_now(),
+                started_at=existing.started_at if (existing and edit) else utc_now(),
             )
             self.tasks[task.userid] = task
             await self.channel.send_set(*self.channel.task_args(task))
@@ -240,6 +241,20 @@ class NowDoingCog(LionCog):
     async def disc_now(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
         await self.now(ctx, profile, args)
+
+    @commands.command(
+        name='edit',
+    )
+    async def twi_edit(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.now(ctx, profile, args, edit=True)
+
+    @cmds.hybrid_command(
+        name='edit',
+    )
+    async def disc_edit(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.now(ctx, profile, args, edit=True)
 
     async def nownext(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str]): 
         userid = profile.profileid
