@@ -140,6 +140,7 @@ class NowDoingCog(LionCog):
             await self.channel.send_del(source_profile.profileid)
         else:
             results.append("No running task in source profile, nothing to migrate!")
+        await self.load_tasks()
 
         return ' '.join(results)
 
@@ -150,7 +151,7 @@ class NowDoingCog(LionCog):
         await self.load_tasks()
         for userid, task in self.tasks.items():
             userid = int(userid)
-            if userid > 100:
+            if userid > 1000:
                 # Assume it is a twitch userid
                 profile = await UserProfile.fetch_from_twitchid(self.bot, userid)
 
