@@ -202,7 +202,7 @@ class NowDoingCog(LionCog):
             await self.data.Task.table.delete_where(userid=userid)
             task = await self.data.Task.create(
                 userid=userid,
-                name=ctx.author.display_name,
+                name=await profile.get_name(),
                 task=args,
                 started_at=existing.started_at if (existing and edit) else utc_now(),
             )
@@ -272,7 +272,7 @@ class NowDoingCog(LionCog):
             await self.data.Task.table.delete_where(userid=userid)
             task = await self.data.Task.create(
                 userid=userid,
-                name=ctx.author.display_name,
+                name=await profile.get_name(),
                 task=args,
                 started_at=utc_now(),
             )

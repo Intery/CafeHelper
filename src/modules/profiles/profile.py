@@ -31,6 +31,30 @@ class UserProfile:
     def __repr__(self):
         return f"<UserProfile profileid={self.profileid} profile={self.profile_row}>"
 
+    async def get_name(self):
+        # TODO: Store a preferred name in the profile preferences
+        # TODO Should have a multi-fetch system
+        name = None
+        twitches = await self.twitch_accounts()
+        if twitches:
+            users = await self.bot.crocbot.fetch_users(
+                    ids=[int(twitch.userid) for twitch in twitches]
+            )
+            if users:
+                user = users[0]
+                name = user.display_name
+
+        if not name:
+            discords = await self.discord_accounts()
+            if discords:
+                user = await self.bot.fetch_user(discords[0].userid)
+                name = user.display_name
+
+        if not name:
+            name = 'Unknown'
+
+        return name
+
     async def attach_discord(self, user: discord.User | discord.Member):
         """
         Attach a new discord user to this profile.
