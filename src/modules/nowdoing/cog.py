@@ -4,16 +4,20 @@ import json
 import os
 from typing import Optional
 
-from attr import dataclass
+import discord
+from discord.ext import commands as cmds
+from discord import app_commands as appcmds
+
 import twitchio
 from twitchio.ext import commands
 
-from meta import CrocBot, LionCog
-from meta.LionBot import LionBot
+from meta import CrocBot, LionCog, LionContext, LionBot
 from meta.sockets import Channel, register_channel
 from utils.lib import strfdelta, utc_now
 from . import logger
 from .data import NowListData
+
+from modules.profiles.profile import UserProfile
 
 
 class NowDoingChannel(Channel):
@@ -25,19 +29,7 @@ class NowDoingChannel(Channel):
 
     async def on_connection(self, websocket, event):
         await super().on_connection(websocket, event)
-        for task in self.cog.tasks.values():
-            await self.send_set(*self.task_args(task), websocket=websocket)
-
-    async def send_test_set(self):
-        tasks = [
-            (0, 'Tester0', "Testing Tasklist", True),
-            (1, 'Tester1', "Getting Confused", False),
-            (2, "Tester2", "Generating Bugs", True),
-            (3, "Tester3", "Fixing Bugs", False),
-            (4, "Tester4", "Pushing the red button", False),
-        ]
-        for task in tasks:
-            await self.send_set(*task)
+        await self.reload_tasklist(websocket=websocket)
 
     def task_args(self, task: NowListData.Task):
         return (
@@ -47,6 +39,14 @@ class NowDoingChannel(Channel):
             task.started_at.isoformat(),
             task.done_at.isoformat() if task.done_at else None,
         )
+
+    async def reload_tasklist(self, websocket=None):
+        """
+        Clear tasklist and re-send current tasks.
+        """
+        await self.send_clear(websocket=websocket)
+        for task in self.cog.tasks.values():
+            await self.send_set(*self.task_args(task), websocket=websocket)
 
     async def send_set(self, userid, name, task, start_at, end_at, websocket=None):
         await self.send_event({
@@ -61,28 +61,28 @@ class NowDoingChannel(Channel):
             }
         }, websocket=websocket)
 
-    async def send_del(self, userid):
+    async def send_del(self, userid, websocket=None):
         await self.send_event({
             'type': "DO",
             'method': "delTask",
             'args': {
                 'userid': userid,
             }
-        })
+        }, websocket=websocket)
 
-    async def send_clear(self):
+    async def send_clear(self, websocket=None):
         await self.send_event({
             'type': "DO",
             'method': "clearTasks",
             'args': {
             }
-        })
+        }, websocket=websocket)
 
 
 class NowDoingCog(LionCog):
     def __init__(self, bot: LionBot):
         self.bot = bot
-        self.crocbot = bot.crocbot
+        self.crocbot: CrocBot = bot.crocbot
         self.data = bot.db.load_registry(NowListData())
         self.channel = NowDoingChannel(self)
         register_channel(self.channel.name, self.channel)
@@ -94,8 +94,9 @@ class NowDoingCog(LionCog):
 
     async def cog_load(self):
         await self.data.init()
-
         await self.load_tasks()
+
+        self.bot.get_cog('ProfileCog').add_profile_migrator(self.migrate_profiles, name='task-migrator')
 
         self._load_twitch_methods(self.crocbot)
         self.loaded.set()
@@ -103,7 +104,71 @@ class NowDoingCog(LionCog):
     async def cog_unload(self):
         self.loaded.clear()
         self.tasks.clear()
+        if profiles := self.bot.get_cog('ProfileCog'):
+            profiles.del_profile_migrator('task-migrator')
         self._unload_twitch_methods(self.crocbot)
+
+    async def migrate_profiles(self, source_profile: UserProfile, target_profile: UserProfile):
+        """
+        Move current source task to target profile if there's room for it, otherwise annihilate
+        """
+        await self.load_tasks()
+        source_task = self.tasks.pop(source_profile.profileid, None)
+
+        results = ["(Tasklist)"]
+
+        if source_task:
+            target_task = self.tasks.get(target_profile.profileid, None)
+            if target_task and (target_task.is_done or target_task.started_at < source_task.started_at):
+                # If target is done, remove it so we can overwrite
+                results.append("Removed older task from target profile.")
+                await target_task.delete()
+                target_task = None
+
+            if not target_task:
+                # Update source task with new profile id
+                await source_task.update(userid=target_profile.profileid)
+                target_task = source_task
+                await self.channel.send_set(*self.channel.task_args(target_task))
+                results.append("Migrated 1 currently running task from source profile.")
+            else:
+                # If there is a target task we can't overwrite, just delete the source task
+                await source_task.delete()
+                results.append("Ignoring and removing older task from source profile.")
+
+            self.tasks.pop(source_profile.profileid, None)
+            await self.channel.send_del(source_profile.profileid)
+        else:
+            results.append("No running task in source profile, nothing to migrate!")
+        await self.load_tasks()
+
+        return ' '.join(results)
+
+    async def user_profile_migration(self):
+        """
+        Manual single-use migration method from the old userid format to the new profileid format.
+        """
+        await self.load_tasks()
+        for userid, task in self.tasks.items():
+            userid = int(userid)
+            if userid > 1000:
+                # Assume it is a twitch userid
+                profile = await UserProfile.fetch_from_twitchid(self.bot, userid)
+
+                if not profile:
+                    # Create a new profile with this twitch user
+                    users = await self.crocbot.fetch_users(ids=[userid])
+                    if not users:
+                        continue
+                    user = users[0]
+                    profile = await UserProfile.create_from_twitch(self.bot, user)
+
+                if not await self.data.Task.fetch(profile.profileid):
+                    await task.update(userid=profile.profileid)
+                else:
+                    await task.delete()
+        await self.load_tasks()
+        await self.channel.reload_tasklist()
 
     async def cog_check(self, ctx):
         if not self.loaded.is_set():
@@ -123,25 +188,27 @@ class NowDoingCog(LionCog):
             # await self.channel.send_test_set()
             # await ctx.send(f"Hello {ctx.author.name}! This command does something, we aren't sure what yet.")
             # await ctx.send(str(list(self.tasks.items())[0]))
+            await self.user_profile_migration()
             await ctx.send(str(ctx.author.id))
+            await ctx.reply("Userid -> profile migration done.")
         else:
             await ctx.send(f"Hello {ctx.author.name}! I don't think you have permission to test that.")
 
-    @commands.command(aliases=['task', 'check'])
-    async def now(self, ctx: commands.Context, *, args: Optional[str] = None):
-        userid = int(ctx.author.id)
+    async def now(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str] = None, edit=False):
         args = args.strip() if args else None
+        userid = profile.profileid
         if args:
+            existing = self.tasks.get(userid, None)
             await self.data.Task.table.delete_where(userid=userid)
             task = await self.data.Task.create(
                 userid=userid,
                 name=ctx.author.display_name,
                 task=args,
-                started_at=utc_now(),
+                started_at=existing.started_at if (existing and edit) else utc_now(),
             )
             self.tasks[task.userid] = task
             await self.channel.send_set(*self.channel.task_args(task))
-            await ctx.send(f"Updated your current task, good luck!")
+            await ctx.send("Updated your current task, good luck!")
         elif task := self.tasks.get(userid, None):
             if task.is_done:
                 done_ago = strfdelta(utc_now() - task.done_at)
@@ -159,9 +226,38 @@ class NowDoingCog(LionCog):
                 "Show what you are currently working on with, e.g. !now Reading notes"
             )
 
-    @commands.command(name='next')
-    async def nownext(self, ctx: commands.Context, *, args: Optional[str] = None): 
-        userid = int(ctx.author.id)
+    @commands.command(
+        name='now',
+        aliases=['task', 'check']
+    )
+    async def twi_now(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.now(ctx, profile, args)
+
+    @cmds.hybrid_command(
+        name='now',
+        aliases=['task', 'check']
+    )
+    async def disc_now(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.now(ctx, profile, args)
+
+    @commands.command(
+        name='edit',
+    )
+    async def twi_edit(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.now(ctx, profile, args, edit=True)
+
+    @cmds.hybrid_command(
+        name='edit',
+    )
+    async def disc_edit(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.now(ctx, profile, args, edit=True)
+
+    async def nownext(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str]): 
+        userid = profile.profileid
         task = self.tasks.get(userid, None)
         if args:
             if task:
@@ -182,7 +278,7 @@ class NowDoingCog(LionCog):
             )
             self.tasks[task.userid] = task
             await self.channel.send_set(*self.channel.task_args(task))
-            await ctx.send(f"Next task set, good luck!" + ' ' + prefix)
+            await ctx.send("Next task set, good luck!" + ' ' + prefix)
         elif task:
             if task.is_done:
                 done_ago = strfdelta(utc_now() - task.done_at)
@@ -200,9 +296,22 @@ class NowDoingCog(LionCog):
                 "Show what you are currently working on with, e.g. !now Reading notes"
             )
 
-    @commands.command()
-    async def done(self, ctx: commands.Context):
-        userid = int(ctx.author.id)
+    @commands.command(
+        name='next',
+    )
+    async def twi_next(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.nownext(ctx, profile, args)
+
+    @cmds.hybrid_command(
+        name='next',
+    )
+    async def disc_next(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.nownext(ctx, profile, args)
+
+    async def done(self, ctx: commands.Context | LionContext, profile: UserProfile):
+        userid = profile.profileid
         if task := self.tasks.get(userid, None):
             if task.is_done:
                 await ctx.send(
@@ -222,9 +331,36 @@ class NowDoingCog(LionCog):
                 "Show what you are currently working on with, e.g. !now Reading notes"
             )
 
-    @commands.command()
-    async def clear(self, ctx: commands.Context):
-        userid = int(ctx.author.id)
+    @commands.command(
+        name='done',
+    )
+    async def twi_done(self, ctx: commands.Context):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.done(ctx, profile)
+
+    @cmds.hybrid_command(
+        name='done',
+    )
+    async def disc_done(self, ctx: LionContext):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.done(ctx, profile)
+
+    @commands.command(
+        name='clear',
+    )
+    async def twi_clear(self, ctx: commands.Context):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        await self.clear(ctx, profile)
+
+    @cmds.hybrid_command(
+        name='clear',
+    )
+    async def disc_clear(self, ctx: LionContext):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        await self.clear(ctx, profile)
+
+    async def clear(self, ctx: commands.Context | LionContext, profile):
+        userid = profile.profileid
         if task := self.tasks.pop(userid, None):
             await task.delete()
             await self.channel.send_del(userid)

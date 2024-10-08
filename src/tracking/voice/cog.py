@@ -654,7 +654,7 @@ class VoiceTrackerCog(LionCog):
 
     # ----- Commands -----
     @cmds.hybrid_command(
-        name=_p('cmd:now', "now"),
+        name="tag",
         description=_p(
             'cmd:now|desc',
             "Describe what you are working on, or see what your friends are working on!"

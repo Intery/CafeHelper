@@ -92,7 +92,7 @@ class ProfileCog(LionCog):
                 results.append(f"Migrated {len(twitch_rows)} attached twitch account(s).")
 
                 # And then mark the old profile as migrated
-                await source_profile.update(migrated=target_profile.profileid)
+                await source_profile.profile_row.update(migrated=target_profile.profileid)
                 results.append("Marking old profile as migrated.. finished!")
         return results
 

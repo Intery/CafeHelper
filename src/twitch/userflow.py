@@ -56,7 +56,7 @@ class UserAuthFlow:
         result = await self._comm_task
         if result.get('error', None):
             # TODO Custom auth errors
-            # This is only documented to occure when the user denies the auth
+            # This is only documented to occur when the user denies the auth
             raise SafeCancellation(f"Could not authenticate user! Reason: {result['error_description']}")
 
         if result.get('state', None) != self.auth.state:
