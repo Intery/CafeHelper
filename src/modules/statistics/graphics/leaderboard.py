@@ -8,9 +8,16 @@ async def get_leaderboard_card(
     bot: LionBot, highlightid: int, guildid: int,
     mode: CardMode,
     entry_data: list[tuple[int, int, int]],  # userid, position, time
+    name_map: dict[int, str] = {},
+    extra_skin_args = {},
 ):
     """
     Render a leaderboard card with given parameters.
+
+    Parameters
+    ----------
+    name_map: dict[int, str]
+        Map of userid -> name, used first before cache or fetch. 
     """
     guild = bot.get_guild(guildid)
     if guild is None:
@@ -20,8 +27,12 @@ async def get_leaderboard_card(
     avatars = {}
     names = {}
     missing = []
+
     for userid, _, _ in entry_data:
-        if guild and (member := guild.get_member(userid)):
+        if (name := name_map.get(userid, None)):
+            avatars[userid] = None
+            names[userid] = name
+        elif guild and (member := guild.get_member(userid)):
             avatars[userid] = member.avatar.key if member.avatar else None
             names[userid] = member.display_name
         elif (user := bot.get_user(userid)):
@@ -65,7 +76,7 @@ async def get_leaderboard_card(
         guildid, None, LeaderboardCard.card_id
     )
     card = LeaderboardCard(
-        skin=skin | {'mode': mode},
+        skin=skin | {'mode': mode} | extra_skin_args,
         server_name=guild.name,
         entries=entries,
         highlight=highlight
