@@ -15,7 +15,7 @@ from data.queries import ORDER
 from meta import LionCog, LionBot, CrocBot, LionContext
 from modules.profiles.community import Community
 from modules.profiles.profile import UserProfile
-from utils.lib import utc_now
+from utils.lib import utc_now, paginate_list, pager
 from . import logger
 from .data import CounterData
 
@@ -92,7 +92,7 @@ def counter_cmd_factory(
         community: Community,
         args: Optional[str]
     ):
-        await ctx.reply(await cog.formatted_lb(counter, args, community, origin))
+        await cog.show_lb(ctx, counter, args, author, community, origin)
 
     async def undo_cmd(
         cog,
@@ -134,9 +134,10 @@ class CounterCog(LionCog):
 
     async def cog_load(self):
         self._load_twitch_methods(self.crocbot)
-        await self.load_counter_commands()
 
         await self.data.init()
+
+        await self.load_counter_commands()
         await self.load_counters()
         self.loaded.set()
 
@@ -401,8 +402,7 @@ class CounterCog(LionCog):
             total = await self.totals(name)
             await ctx.reply(f"'{name}' counter is now: {total}")
         elif subcmd == 'lb':
-            lbstr = await self.formatted_lb(name, args or '', community)
-            await ctx.reply(lbstr)
+            await self.show_lb(ctx, name, args or '', author, community, origin=ORIGIN.TWITCH)
         elif subcmd == 'clear':
             await self.reset_counter(name)
             await ctx.reply(f"'{name}' counter reset.")
@@ -483,6 +483,16 @@ class CounterCog(LionCog):
 
         return (period, start_time)
 
+    @cmds.hybrid_command(
+        name='counterlb',
+        description="Show the leaderboard for the given counter."
+    )
+    async def counterlb_dcmd(self, ctx: LionContext, counter: str, period: Optional[str] = None):
+        profiles = self.bot.get_cog('ProfileCog')
+        author = await profiles.fetch_profile_discord(ctx.author)
+        community = await profiles.fetch_community_discord(ctx.guild)
+        await self.show_lb(ctx, counter, period, author, community, ORIGIN.DISCORD)
+
     async def formatted_lb(
             self,
             counter: str,
@@ -500,7 +510,7 @@ class CounterCog(LionCog):
                 profile = await UserProfile.fetch(self.bot, userid)
                 name = await profile.get_name()
                 name_map[userid] = name
-
+            # Split this depending on origin
             parts = []
             items = list(lb.items())
             prefix = 'top 10 ' if len(items) > 10 else ''
@@ -513,3 +523,63 @@ class CounterCog(LionCog):
             return f"{counter} {period.value[-1]} {prefix}leaderboard --- {lbstr}"
         else:
             return f"{counter} {period.value[-1]} leaderboard is empty!"
+
+    async def show_lb(
+            self,
+            ctx: commands.Context | LionContext,
+            counter: str,
+            periodstr: str,
+            caller: UserProfile,
+            community: Community,
+            origin: ORIGIN = ORIGIN.TWITCH
+        ):
+
+        period, start_time = await self.parse_period(community, periodstr)
+        lb = await self.leaderboard(counter, start_time=start_time)
+        name_map = {}
+        for userid in lb.keys():
+            profile = await UserProfile.fetch(self.bot, userid)
+            name = await profile.get_name()
+            name_map[userid] = name
+
+        if not lb:
+            await ctx.reply(
+                f"{counter} {period.value[-1]} leaderboard is empty!"
+            )
+        elif origin is ORIGIN.TWITCH:
+            parts = []
+            items = list(lb.items())
+            prefix = 'top 10 ' if len(items) > 10 else ''
+            items = items[:10]
+            for userid, total in items:
+                name = name_map.get(userid, str(userid))
+                part = f"{name}: {total}"
+                parts.append(part)
+            lbstr = '; '.join(parts)
+            await ctx.reply(f"{counter} {period.value[-1]} {prefix}leaderboard --- {lbstr}")
+        elif origin is ORIGIN.DISCORD:
+            title = f"'{counter}' {period.value[-1]} leaderboard"
+
+            lb_strings = []
+            author_index = None
+            max_name_len = min((30, max(len(name) for name in name_map.values())))
+            for i, (uid, total) in enumerate(lb.items()):
+                if author_index is None and uid == caller.profileid:
+                    author_index = i
+                lb_strings.append(
+                    "{:<{}}\t{:<9}".format(
+                        name_map[uid],
+                        max_name_len,
+                        total,
+                    )
+                )
+
+            page_len = 20
+            pages = paginate_list(lb_strings, block_length=page_len, title=title)
+            start_page = author_index // page_len if author_index is not None else 0
+
+            await pager(
+                ctx,
+                pages,
+                start_at=start_page
+            )
