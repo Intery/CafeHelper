@@ -18,6 +18,7 @@ from modules.profiles.profile import UserProfile
 from utils.lib import utc_now, paginate_list, pager
 from . import logger
 from .data import CounterData
+from .graphics.weekly import counter_weekly_card, counter_monthly_card
 
 
 class PERIOD(Enum):
@@ -493,36 +494,37 @@ class CounterCog(LionCog):
         community = await profiles.fetch_community_discord(ctx.guild)
         await self.show_lb(ctx, counter, period, author, community, ORIGIN.DISCORD)
 
-    async def formatted_lb(
-            self,
-            counter: str,
-            periodstr: str,
-            community: Community,
-            origin: ORIGIN = ORIGIN.TWITCH
-        ):
+    @cmds.hybrid_command(
+        name='counterstats',
+        description="Show your stats for the given counter."
+    )
+    async def counterstats_dcmd(self, ctx: LionContext, counter: str, period: Optional[str]=None):
+        profiles = self.bot.get_cog('ProfileCog')
+        author = await profiles.fetch_profile_discord(ctx.author)
+        community = await profiles.fetch_community_discord(ctx.guild)
 
-        period, start_time = await self.parse_period(community, periodstr)
-
-        lb = await self.leaderboard(counter, start_time=start_time)
-        if lb:
-            name_map = {}
-            for userid in lb.keys():
-                profile = await UserProfile.fetch(self.bot, userid)
-                name = await profile.get_name()
-                name_map[userid] = name
-            # Split this depending on origin
-            parts = []
-            items = list(lb.items())
-            prefix = 'top 10 ' if len(items) > 10 else ''
-            items = items[:10]
-            for userid, total in items:
-                name = name_map.get(userid, str(userid))
-                part = f"{name}: {total}"
-                parts.append(part)
-            lbstr = '; '.join(parts)
-            return f"{counter} {period.value[-1]} {prefix}leaderboard --- {lbstr}"
+        if period and period.lower() in ('monthly', 'month'):
+            card = await counter_monthly_card(
+                self.bot,
+                userid=ctx.author.id,
+                profile=author,
+                counter=await self.fetch_counter(counter),
+                guildid=ctx.guild.id,
+                offset=0,
+            )
+            await card.render()
+            await ctx.reply(file=card.as_file('stats.png'))
         else:
-            return f"{counter} {period.value[-1]} leaderboard is empty!"
+            card = await counter_weekly_card(
+                self.bot,
+                userid=ctx.author.id,
+                profile=author,
+                counter=await self.fetch_counter(counter),
+                guildid=ctx.guild.id,
+                offset=0,
+            )
+            await card.render()
+            await ctx.reply(file=card.as_file('stats.png'))
 
     async def show_lb(
             self,
