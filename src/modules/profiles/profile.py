@@ -38,7 +38,7 @@ class UserProfile:
         twitches = await self.twitch_accounts()
         if twitches:
             users = await self.bot.crocbot.fetch_users(
-                    ids=[int(twitch.userid) for twitch in twitches]
+                    ids=[int(twitches[0].userid)]
             )
             if users:
                 user = users[0]
@@ -86,13 +86,21 @@ class UserProfile:
         """
         Fetch the Discord accounts associated to this profile.
         """
-        return await self.data.DiscordProfileRow.fetch_where(profileid=self.profileid)
+        return await self.data.DiscordProfileRow.fetch_where(
+            profileid=self.profileid
+        ).order_by(
+            'created_at'
+        )
 
     async def twitch_accounts(self) -> list[ProfileData.TwitchProfileRow]:
         """
         Fetch the Twitch accounts associated to this profile.
         """
-        return await self.data.TwitchProfileRow.fetch_where(profileid=self.profileid)
+        return await self.data.TwitchProfileRow.fetch_where(
+                profileid=self.profileid
+        ).order_by(
+            'created_at'
+        )
 
     @classmethod
     async def fetch(cls, bot: LionBot, profile_id: int) -> Self:
