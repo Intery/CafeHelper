@@ -7,6 +7,7 @@ import iso8601  # type: ignore
 import pytz
 import re
 import json
+import asyncio
 from contextvars import Context
 
 import discord
@@ -918,3 +919,126 @@ def write_records(records: list[dict[str, Any]], stream: StringIO):
         for record in records:
             stream.write(','.join(map(str, record.values())))
             stream.write('\n')
+
+
+async def pager(ctx, pages, locked=True, start_at=0, add_cancel=False, **kwargs):
+    """
+    Shows the user each page from the provided list `pages` one at a time,
+    providing reactions to page back and forth between pages.
+    This is done asynchronously, and returns after displaying the first page.
+
+    Parameters
+    ----------
+    pages: List(Union(str, discord.Embed))
+        A list of either strings or embeds to display as the pages.
+    locked: bool
+        Whether only the `ctx.author` should be able to use the paging reactions.
+    kwargs: ...
+        Remaining keyword arguments are transparently passed to the reply context method.
+
+    Returns: discord.Message
+        This is the output message, returned for easy deletion.
+    """
+    cancel_emoji = cross
+    # Handle broken input
+    if len(pages) == 0:
+        raise ValueError("Pager cannot page with no pages!")
+
+    # Post first page. Method depends on whether the page is an embed or not.
+    if isinstance(pages[start_at], discord.Embed):
+        out_msg = await ctx.reply(embed=pages[start_at], **kwargs)
+    else:
+        out_msg = await ctx.reply(pages[start_at], **kwargs)
+
+    # Run the paging loop if required
+    if len(pages) > 1:
+        task = asyncio.create_task(_pager(ctx, out_msg, pages, locked, start_at, add_cancel, **kwargs))
+        # ctx.tasks.append(task)
+    elif add_cancel:
+        await out_msg.add_reaction(cancel_emoji)
+
+    # Return the output message
+    return out_msg
+
+
+async def _pager(ctx, out_msg, pages, locked, start_at, add_cancel, **kwargs):
+    """
+    Asynchronous initialiser and loop for the `pager` utility above.
+    """
+    # Page number
+    page = start_at
+
+    # Add reactions to the output message
+    next_emoji = "▶"
+    prev_emoji = "◀"
+    cancel_emoji = cross
+
+    try:
+        await out_msg.add_reaction(prev_emoji)
+        if add_cancel:
+            await out_msg.add_reaction(cancel_emoji)
+        await out_msg.add_reaction(next_emoji)
+    except discord.Forbidden:
+        # We don't have permission to add paging emojis
+        # Die as gracefully as we can
+        if ctx.guild:
+            perms = ctx.channel.permissions_for(ctx.guild.me)
+            if not perms.add_reactions:
+                await ctx.error_reply(
+                    "Cannot page results because I do not have the `add_reactions` permission!"
+                )
+            elif not perms.read_message_history:
+                await ctx.error_reply(
+                    "Cannot page results because I do not have the `read_message_history` permission!"
+                )
+            else:
+                await ctx.error_reply(
+                    "Cannot page results due to insufficient permissions!"
+                )
+        else:
+            await ctx.error_reply(
+                "Cannot page results!"
+            )
+        return
+
+    # Check function to determine whether a reaction is valid
+    def check(reaction, user):
+        result = reaction.message.id == out_msg.id
+        result = result and str(reaction.emoji) in [next_emoji, prev_emoji]
+        result = result and not (user.id == ctx.bot.user.id)
+        result = result and not (locked and user != ctx.author)
+        return result
+
+    # Begin loop
+    while True:
+        # Wait for a valid reaction, break if we time out
+        try:
+            reaction, user = await ctx.bot.wait_for('reaction_add', check=check, timeout=300)
+        except asyncio.TimeoutError:
+            break
+
+        # Attempt to remove the user's reaction, silently ignore errors
+        asyncio.ensure_future(out_msg.remove_reaction(reaction.emoji, user))
+
+        # Change the page number
+        page += 1 if reaction.emoji == next_emoji else -1
+        page %= len(pages)
+
+        # Edit the message with the new page
+        active_page = pages[page]
+        if isinstance(active_page, discord.Embed):
+            await out_msg.edit(embed=active_page, **kwargs)
+        else:
+            await out_msg.edit(content=active_page, **kwargs)
+
+    # Clean up by removing the reactions
+    try:
+        await out_msg.clear_reactions()
+    except discord.Forbidden:
+        try:
+            await out_msg.remove_reaction(next_emoji, ctx.client.user)
+            await out_msg.remove_reaction(prev_emoji, ctx.client.user)
+        except discord.NotFound:
+            pass
+    except discord.NotFound:
+        pass
