@@ -194,6 +194,7 @@ class CounterCog(LionCog):
                 self.add_twitch_command(self.crocbot, cmd)
             for cmd in disc_cmds:
                 # cmd.cog = self
+                self.bot.remove_command(cmd.name)
                 self.bot.add_command(cmd)
                 print(f"Adding command: {cmd}")
 
