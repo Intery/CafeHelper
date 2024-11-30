@@ -13,6 +13,8 @@ if TYPE_CHECKING:
     from core.lion_member import LionMember
     from core.lion_user import LionUser
     from core.lion_guild import LionGuild
+    from modules.profiles.profile import UserProfile
+    from modules.profiles.community import Community
 
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,8 @@ class LionContext(Context['LionBot']):
     lguild: 'LionGuild'
     lmember: 'LionMember'
     alion: 'LionUser | LionMember'
+    profile: 'UserProfile'
+    community: 'Community'
 
     def __repr__(self):
         parts = {}

@@ -287,13 +287,14 @@ CREATE TABLE tasklist(
   deleted_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ,
-  last_updated_at TIMESTAMPTZ
+  last_updated_at TIMESTAMPTZ,
+  duration INTEGER
 );
 CREATE INDEX tasklist_users ON tasklist (userid);
 ALTER TABLE tasklist
   ADD CONSTRAINT fk_tasklist_users
   FOREIGN KEY (userid)
-  REFERENCES user_config (userid)
+  REFERENCES user_profiles (profileid)
   ON DELETE CASCADE
   NOT VALID;
 ALTER TABLE tasklist

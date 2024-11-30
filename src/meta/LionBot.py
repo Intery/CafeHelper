@@ -92,6 +92,10 @@ class LionBot(Bot):
     def core(self):
         return self.get_cog('CoreCog')
 
+    @property
+    def profiles(self):
+        return self.get_cog('ProfileCog')
+
     async def _handle_global_dispatch(self, event_name: str, *args, **kwargs):
         self.dispatch(event_name, *args, **kwargs)
 

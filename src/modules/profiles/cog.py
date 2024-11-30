@@ -40,6 +40,17 @@ class ProfileCog(LionCog):
     async def cog_check(self, ctx):
         return True
 
+    async def bot_check_once(self, ctx: LionContext):
+        """
+        Inject the contextual UserProfile and Community into the LionContext.
+
+        Creates the profile and community if they do not exist.
+        """
+        if ctx.guild:
+            ctx.community = await self.fetch_community_discord(ctx.guild)
+        ctx.profile = await self.fetch_profile_discord(ctx.author)
+        return True
+
     # Profile API
     def add_profile_migrator(self, migrator, name=None):
         name = name or migrator.__name__

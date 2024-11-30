@@ -14,12 +14,14 @@ class TasklistData(Registry):
         CREATE TABLE tasklist(
           taskid SERIAL PRIMARY KEY,
           userid BIGINT NOT NULL REFERENCES user_config ON DELETE CASCADE,
+          profileid INTEGER NOT NULL REFERENCES user_profiles ON DELETE CASCADE ON UPDATE CASCADE,
           parentid INTEGER REFERENCES tasklist (taskid) ON DELETE SET NULL,
           content TEXT NOT NULL,
           rewarded BOOL DEFAULT FALSE,
           deleted_at TIMESTAMPTZ,
           completed_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ,
+          duration INTEGER,
           last_updated_at TIMESTAMPTZ
         );
         CREATE INDEX tasklist_users ON tasklist (userid);
@@ -41,5 +43,6 @@ class TasklistData(Registry):
         created_at = Timestamp()
         deleted_at = Timestamp()
         last_updated_at = Timestamp()
+        duration = Integer()
 
     channels = Table('tasklist_channels')

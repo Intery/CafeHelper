@@ -232,13 +232,18 @@ class TasklistUI(BasePager):
 
     def __init__(self,
                  tasklist: Tasklist,
-                 channel: discord.abc.Messageable, guild: Optional[discord.Guild] = None, **kwargs):
+                 channel: discord.abc.Messageable,
+                 guild: Optional[discord.Guild] = None,
+                 caller: Optional[discord.User | discord.Member] = None,
+                 **kwargs):
         kwargs.setdefault('timeout', 600)
         super().__init__(**kwargs)
 
         self.bot = tasklist.bot
         self.tasklist = tasklist
         self.labelled = tasklist.labelled
+        self.caller = caller
+        # NOTE: This is now a profiled
         self.userid = tasklist.userid
         self.channel = channel
         self.guild = guild
@@ -449,9 +454,10 @@ class TasklistUI(BasePager):
                 cascade=True,
                 completed_at=utc_now()
             )
-            if self.guild:
-                if (member := self.guild.get_member(self.userid)):
-                    self.bot.dispatch('tasks_completed', member, *(t.taskid for t in to_complete))
+            # TODO: Removed economy integration
+            # if self.guild:
+            #     if (member := self.guild.get_member(self.userid)):
+            #         self.bot.dispatch('tasks_completed', member, *(t.taskid for t in to_complete))
         if to_uncomplete:
             await self.tasklist.update_tasks(
                 *(t.taskid for t in to_uncomplete),
@@ -475,7 +481,7 @@ class TasklistUI(BasePager):
             if shared_root:
                 self._subtree_root = labelled[shared_root].taskid
 
-        self.bot.dispatch('tasklist_update', userid=self.userid, channel=self.channel, summon=False)
+        self.bot.dispatch('tasklist_update', profileid=self.userid, channel=self.channel, summon=False)
 
     async def _delete_menu(self, interaction: discord.Interaction, selected: Select, subtree: bool):
         await interaction.response.defer()
@@ -486,7 +492,7 @@ class TasklistUI(BasePager):
                 cascade=True,
                 deleted_at=utc_now()
             )
-            self.bot.dispatch('tasklist_update', userid=self.userid, channel=self.channel, summon=False)
+            self.bot.dispatch('tasklist_update', profileid=self.userid, channel=self.channel, summon=False)
 
     async def _edit_menu(self, interaction: discord.Interaction, selected: Select, subtree: bool):
         if not selected.values:
@@ -513,7 +519,7 @@ class TasklistUI(BasePager):
                     self._last_parentid = new_parentid
                     if not subtree:
                         self._subtree_root = new_parentid
-                    self.bot.dispatch('tasklist_update', userid=self.userid, channel=self.channel, summon=False)
+                    self.bot.dispatch('tasklist_update', profileid=self.userid, channel=self.channel, summon=False)
 
             await interaction.response.send_modal(editor)
 
@@ -606,7 +612,7 @@ class TasklistUI(BasePager):
             self._subtree_root = pid
             await interaction.response.defer()
             await self.tasklist.create_task(new_task, parentid=pid)
-            self.bot.dispatch('tasklist_update', userid=self.userid, channel=self.channel, summon=False)
+            self.bot.dispatch('tasklist_update', profileid=self.userid, channel=self.channel, summon=False)
 
         await press.response.send_modal(editor)
 
@@ -667,7 +673,7 @@ class TasklistUI(BasePager):
 
         @editor.add_callback
         async def editor_callback(interaction: discord.Interaction):
-            self.bot.dispatch('tasklist_update', userid=self.userid, channel=self.channel, summon=False)
+            self.bot.dispatch('tasklist_update', profileid=self.userid, channel=self.channel, summon=False)
 
         if sum(len(line) for line in editor.lines.values()) + len(editor.lines) >= 4000:
             await press.response.send_message(
@@ -698,7 +704,7 @@ class TasklistUI(BasePager):
         await self.tasklist.update_tasklist(
             deleted_at=utc_now(),
         )
-        self.bot.dispatch('tasklist_update', userid=self.userid, channel=self.channel, summon=False)
+        self.bot.dispatch('tasklist_update', profileid=self.userid, channel=self.channel, summon=False)
 
     async def clear_button_refresh(self):
         self.clear_button.label = self.bot.translator.t(_p(
@@ -771,11 +777,12 @@ class TasklistUI(BasePager):
 
     # ----- UI Flow -----
     def access_check(self, userid):
-        return userid == self.userid
+        return userid in (self.userid, self.caller.id if self.caller else None)
 
     async def interaction_check(self, interaction: discord.Interaction):
         t = self.bot.translator.t
-        if not self.access_check(interaction.user.id):
+        interaction_profile = await self.bot.profiles.fetch_profile_discord(interaction.user)
+        if not self.access_check(interaction_profile.profileid):
             embed = discord.Embed(
                 description=t(_p(
                     'ui:tasklist|error:wrong_user',
@@ -812,10 +819,7 @@ class TasklistUI(BasePager):
         total = len(tasks)
         completed = sum(t.completed_at is not None for t in tasks)
 
-        if self.guild:
-            user = self.guild.get_member(self.userid)
-        else:
-            user = self.bot.get_user(self.userid)
+        user = self.caller
         user_name = user.name if user else str(self.userid)
         user_colour = user.colour if user else discord.Color.orange()
 

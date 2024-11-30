@@ -10,6 +10,7 @@ from discord.app_commands.transformers import AppCommandOptionType as cmdopt
 from meta import LionBot, LionCog, LionContext
 from meta.logger import log_wrap
 from meta.errors import UserInputError
+from modules.profiles.profile import UserProfile
 from utils.lib import utc_now, error_embed
 from utils.ui import ChoicedEnum, Transformed, AButton
 
@@ -141,7 +142,71 @@ class TasklistCog(LionCog):
         configcog = self.bot.get_cog('ConfigCog')
         self.crossload_group(self.configure_group, configcog.config_group)
 
-    @LionCog.listener('on_tasks_completed')
+    @log_wrap(action="Tasklist Profile Migration")
+    async def migrate_profiles(self, source_profile: UserProfile, target_profile: UserProfile):
+        """
+        Re-assign all tasklist tasks from source profile to target profile.
+        TODO: Probably wants some elegant handling of the cached or running tasklists.
+        """
+        results = ["(Tasklist)"]
+        sourceid = source_profile.profileid
+        targetid = target_profile.profileid
+        updated = await self.data.Task.table.update_where(userid=sourceid).set(userid=targetid)
+        if updated:
+            results.append(
+                f"Migrated {len(updated)} task row(s) from source profile."
+            )
+            for channel_lists in self.live_tasklists.get(sourceid, []):
+                for tasklist in list(channel_lists.values()):
+                    await tasklist.close()
+            self.bot.dispatch('tasklist_update', profileid=targetid, summon=False)
+        else:
+            results.append(
+                "No tasks found in source profile, nothing to migrate!"
+            )
+
+        return ' '.join(results)
+
+    async def user_profile_migration(self):
+        """
+        Manual one-shot migration method from old Discord userids to the new profileids.
+        """
+        # First collect all the distinct userids from the tasklist
+        # Then create a map of userids to profileids, creating the profiles if required
+        # Then do updates, we can just inefficiently do updates on each distinct userid
+        # As long as the userids and profileids never overlap, this is fine. Fine for a one-shot
+
+        # Extract all the userids that exist in the table
+        rows = await self.data.Task.table.select_where().select(
+            userid="DISTINCT(userid)"
+        ).with_no_adapter()
+
+        # Fetch or create discord user profiles for them
+        profile_map = {}
+        for row in rows:
+            userid = row['userid']
+            if userid > 100000:
+                # Assume a Discord snowflake
+                profile = await UserProfile.fetch_from_discordid(self.bot, userid)
+
+                if not profile:
+                    try:
+                        user = self.bot.get_user(userid)
+                        if user is None:
+                            user = await self.bot.fetch_user(userid)
+                    except discord.HTTPException:
+                        logger.info(f"Skipping user {userid}")
+                        continue
+                    profile = await UserProfile.create_from_discord(self.bot, user)
+                profile_map[userid] = profile
+
+        # Now iterate through
+        for userid, profile in profile_map.items():
+            logger.info(f"Migrating userid {userid} to profile {profile}")
+            await self.data.Task.table.update_where(userid=userid).set(userid=profile.profileid)
+
+    # Temporarily disabling integration with userid driven Economy
+    # @LionCog.listener('on_tasks_completed')
     @log_wrap(action="reward tasks completed")
     async def reward_tasks_completed(self, member: discord.Member, *taskids: int):
         async with self.bot.db.connection() as conn:
@@ -170,6 +235,9 @@ class TasklistCog(LionCog):
                         )
 
     async def is_tasklist_channel(self, channel) -> bool:
+        """
+        Check whether a given Discord channel is a tasklist channel
+        """
         if not channel.guild:
             return True
         channels = (await self.settings.tasklist_channels.get(channel.guild.id)).value
@@ -186,12 +254,16 @@ class TasklistCog(LionCog):
         return (channel in channels) or (channel.id in private_channels) or (channel.category in channels)
 
     async def call_tasklist(self, interaction: discord.Interaction):
+        """
+        Given a Discord channel interaction, summon the interacting user's tasklist.
+        """
         await interaction.response.defer(thinking=True, ephemeral=True)
         channel = interaction.channel
         guild = channel.guild
-        userid = interaction.user.id
+        profile = await self.bot.profiles.fetch_profile_discord(interaction.user)
+        profileid = profile.profileid
 
-        tasklist = await Tasklist.fetch(self.bot, self.data, userid)
+        tasklist = await Tasklist.fetch(self.bot, self.data, profileid)
 
         if await self.is_tasklist_channel(channel):
             # Check we have permissions to send a regular message here
@@ -213,7 +285,7 @@ class TasklistCog(LionCog):
                 )
                 await interaction.edit_original_response(embed=error)
             else:
-                tasklistui = TasklistUI.fetch(tasklist, channel, guild, timeout=None)
+                tasklistui = TasklistUI.fetch(tasklist, channel, guild, caller=interaction.user, timeout=None)
                 await tasklistui.summon(force=True)
                 await interaction.delete_original_response()
         else:
@@ -222,14 +294,14 @@ class TasklistCog(LionCog):
             await tasklistui.run(interaction)
 
     @LionCog.listener('on_tasklist_update')
-    async def update_listening_tasklists(self, userid, channel=None, summon=True):
+    async def update_listening_tasklists(self, profileid, channel=None, summon=True):
         """
         Propagate a tasklist update to all persistent tasklist UIs for this user.
 
         If channel is given, also summons the UI if the channel is a tasklist channel.
         """
         # Do the given channel first, and summon if requested
-        if channel and (tui := TasklistUI._live_[userid].get(channel.id, None)) is not None:
+        if channel and (tui := TasklistUI._live_[profileid].get(channel.id, None)) is not None:
             try:
                 if summon and await self.is_tasklist_channel(channel):
                     await tui.summon()
@@ -240,7 +312,7 @@ class TasklistCog(LionCog):
                 await tui.close()
 
         # Now do the rest of the listening channels
-        listening = TasklistUI._live_[userid]
+        listening = TasklistUI._live_[profileid]
         for cid, ui in list(listening.items()):
             if channel and channel.id == cid:
                 # We already did this channel
@@ -275,7 +347,7 @@ class TasklistCog(LionCog):
     async def tasklist_group(self, ctx: LionContext):
         raise NotImplementedError
 
-    async def _task_acmpl(self, userid: int, partial: str, multi=False) -> list[appcmds.Choice]:
+    async def _task_acmpl(self, profileid: int, partial: str, multi=False) -> list[appcmds.Choice]:
         """
         Generate a list of task Choices matching a given partial string.
 
@@ -284,7 +356,7 @@ class TasklistCog(LionCog):
         t = self.bot.translator.t
 
         # Should usually be cached, so this won't trigger repetitive db access
-        tasklist = await Tasklist.fetch(self.bot, self.data, userid)
+        tasklist = await Tasklist.fetch(self.bot, self.data, profileid)
 
         # Special case for an empty tasklist
         if not tasklist.tasklist:
@@ -392,13 +464,17 @@ class TasklistCog(LionCog):
         """
         Shared autocomplete for single task parameters.
         """
-        return await self._task_acmpl(interaction.user.id, partial, multi=False)
+        profile = await self.bot.profiles.fetch_profile_discord(interaction.user)
+        profileid = profile.profileid
+        return await self._task_acmpl(profileid, partial, multi=False)
 
     async def tasks_acmpl(self, interaction: discord.Interaction, partial: str) -> list[appcmds.Choice]:
         """
         Shared autocomplete for multiple task parameters.
         """
-        return await self._task_acmpl(interaction.user.id, partial, multi=True)
+        profile = await self.bot.profiles.fetch_profile_discord(interaction.user)
+        profileid = profile.profileid
+        return await self._task_acmpl(profileid, partial, multi=True)
 
     @tasklist_group.command(
         name=_p('cmd:tasks_new', "new"),
@@ -422,7 +498,7 @@ class TasklistCog(LionCog):
         if not ctx.interaction:
             return
 
-        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.author.id)
+        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.profile.profileid)
         await ctx.interaction.response.defer(thinking=True, ephemeral=True)
 
         # Fetch parent task if required
@@ -453,9 +529,9 @@ class TasklistCog(LionCog):
         )
         await ctx.interaction.edit_original_response(
             embed=embed,
-            view=None if ctx.channel.id in TasklistUI._live_[ctx.author.id] else TasklistCaller(self.bot)
+            view=None if ctx.channel.id in TasklistUI._live_[ctx.profile.profileid] else TasklistCaller(self.bot)
         )
-        self.bot.dispatch('tasklist_update', userid=ctx.author.id, channel=ctx.channel)
+        self.bot.dispatch('tasklist_update', profileid=ctx.profile.profileid, channel=ctx.channel)
 
     tasklist_new_cmd.autocomplete('parent')(task_acmpl)
 
@@ -523,7 +599,7 @@ class TasklistCog(LionCog):
             raise UserInputError(error)
 
         # Contents successfully parsed, update the tasklist.
-        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.author.id)
+        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.profile.profileid)
 
         taskinfo = tasklist.parse_tasklist(lines)
 
@@ -572,9 +648,9 @@ class TasklistCog(LionCog):
         )
         await ctx.interaction.edit_original_response(
             embed=embed,
-            view=None if ctx.channel.id in TasklistUI._live_[ctx.author.id] else TasklistCaller(self.bot)
+            view=None if ctx.channel.id in TasklistUI._live_[ctx.profile.profileid] else TasklistCaller(self.bot)
         )
-        self.bot.dispatch('tasklist_update', userid=ctx.author.id, channel=ctx.channel)
+        self.bot.dispatch('tasklist_update', profileid=ctx.profile.profileid, channel=ctx.channel)
 
     @tasklist_group.command(
         name=_p('cmd:tasks_edit', "edit"),
@@ -600,7 +676,7 @@ class TasklistCog(LionCog):
         t = self.bot.translator.t
         if not ctx.interaction:
             return
-        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.author.id)
+        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.profile.profileid)
 
         # Fetch task to edit
         tid = tasklist.parse_label(taskstr) if taskstr else None
@@ -651,12 +727,12 @@ class TasklistCog(LionCog):
             await interaction.response.send_message(
                 embed=embed,
                 view=(
-                    discord.utils.MISSING if ctx.channel.id in TasklistUI._live_[ctx.author.id]
+                    discord.utils.MISSING if ctx.channel.id in TasklistUI._live_[ctx.profile.profileid]
                     else TasklistCaller(self.bot)
                 ),
                 ephemeral=True
             )
-            self.bot.dispatch('tasklist_update', userid=ctx.author.id, channel=ctx.channel)
+            self.bot.dispatch('tasklist_update', profileid=ctx.profile.profileid, channel=ctx.channel)
 
         if new_content or new_parent:
             # Manual edit route
@@ -688,17 +764,17 @@ class TasklistCog(LionCog):
     async def tasklist_clear_cmd(self, ctx: LionContext):
         t = ctx.bot.translator.t
 
-        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.author.id)
+        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.profile.profileid)
         await tasklist.update_tasklist(deleted_at=utc_now())
         await ctx.reply(
             t(_p(
                 'cmd:tasks_clear|resp:success',
                 "Your tasklist has been cleared."
             )),
-            view=None if ctx.channel.id in TasklistUI._live_[ctx.author.id] else TasklistCaller(self.bot),
+            view=None if ctx.channel.id in TasklistUI._live_[ctx.profile.profileid] else TasklistCaller(self.bot),
             ephemeral=True
         )
-        self.bot.dispatch('tasklist_update', userid=ctx.author.id, channel=ctx.channel)
+        self.bot.dispatch('tasklist_update', profileid=ctx.profile.profileid, channel=ctx.channel)
 
     @tasklist_group.command(
         name=_p('cmd:tasks_remove', "remove"),
@@ -748,7 +824,7 @@ class TasklistCog(LionCog):
 
         await ctx.interaction.response.defer(thinking=True, ephemeral=True)
 
-        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.author.id)
+        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.profile.profileid)
 
         conditions = []
         if taskidstr:
@@ -784,7 +860,7 @@ class TasklistCog(LionCog):
         elif completed is False:
             conditions.append(self.data.Task.completed_at == NULL)
 
-        tasks = await self.data.Task.fetch_where(*conditions, userid=ctx.author.id)
+        tasks = await self.data.Task.fetch_where(*conditions, userid=ctx.profile.profileid)
         if not tasks:
             await ctx.interaction.edit_original_response(
                 embed=error_embed(t(_p(
@@ -813,9 +889,9 @@ class TasklistCog(LionCog):
         )
         await ctx.interaction.edit_original_response(
             embed=embed,
-            view=None if ctx.channel.id in TasklistUI._live_[ctx.author.id] else TasklistCaller(self.bot)
+            view=None if ctx.channel.id in TasklistUI._live_[ctx.profile.profileid] else TasklistCaller(self.bot)
         )
-        self.bot.dispatch('tasklist_update', userid=ctx.author.id, channel=ctx.channel)
+        self.bot.dispatch('tasklist_update', profileid=ctx.profile.profileid, channel=ctx.channel)
 
     tasklist_remove_cmd.autocomplete('taskidstr')(tasks_acmpl)
 
@@ -844,7 +920,7 @@ class TasklistCog(LionCog):
 
         await ctx.interaction.response.defer(thinking=True, ephemeral=True)
 
-        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.author.id)
+        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.profile.profileid)
 
         try:
             taskids = tasklist.parse_labels(taskidstr)
@@ -889,9 +965,9 @@ class TasklistCog(LionCog):
         )
         await ctx.interaction.edit_original_response(
             embed=embed,
-            view=None if ctx.channel.id in TasklistUI._live_[ctx.author.id] else TasklistCaller(self.bot)
+            view=None if ctx.channel.id in TasklistUI._live_[ctx.profile.profileid] else TasklistCaller(self.bot)
         )
-        self.bot.dispatch('tasklist_update', userid=ctx.author.id, channel=ctx.channel)
+        self.bot.dispatch('tasklist_update', profileid=ctx.profile.profileid, channel=ctx.channel)
 
     tasklist_tick_cmd.autocomplete('taskidstr')(tasks_acmpl)
 
@@ -920,7 +996,7 @@ class TasklistCog(LionCog):
 
         await ctx.interaction.response.defer(thinking=True, ephemeral=True)
 
-        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.author.id)
+        tasklist = await Tasklist.fetch(self.bot, self.data, ctx.profile.profileid)
 
         try:
             taskids = tasklist.parse_labels(taskidstr)
@@ -962,9 +1038,9 @@ class TasklistCog(LionCog):
         )
         await ctx.interaction.edit_original_response(
             embed=embed,
-            view=None if ctx.channel.id in TasklistUI._live_[ctx.author.id] else TasklistCaller(self.bot)
+            view=None if ctx.channel.id in TasklistUI._live_[ctx.profile.profileid] else TasklistCaller(self.bot)
         )
-        self.bot.dispatch('tasklist_update', userid=ctx.author.id, channel=ctx.channel)
+        self.bot.dispatch('tasklist_update', profileid=ctx.profile.profileid, channel=ctx.channel)
 
     tasklist_untick_cmd.autocomplete('taskidstr')(tasks_acmpl)
 
