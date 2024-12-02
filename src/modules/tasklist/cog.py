@@ -9,6 +9,7 @@ from discord.app_commands.transformers import AppCommandOptionType as cmdopt
 
 from data.queries import JOINTYPE
 from meta import LionBot, LionCog, LionContext
+from meta.CrocBot import CrocBot
 from meta.logger import log_wrap
 from meta.errors import UserInputError
 from modules.profiles.profile import UserProfile
@@ -128,6 +129,7 @@ class TasklistCog(LionCog):
 
     def __init__(self, bot: LionBot):
         self.bot = bot
+        self.crocbot: CrocBot = bot.crocbot
         self.data = bot.db.load_registry(TasklistData())
         self.babel = babel
         self.settings = TasklistSettings()
@@ -140,8 +142,18 @@ class TasklistCog(LionCog):
         self.bot.core.guild_config.register_model_setting(self.settings.task_reward_limit)
         self.bot.add_view(TasklistCaller(self.bot))
 
+        self.bot.profiles.add_profile_migrator(self.migrate_profiles, name='tasklist-migrator')
+
         configcog = self.bot.get_cog('ConfigCog')
         self.crossload_group(self.configure_group, configcog.config_group)
+
+        self._load_twitch_methods(self.crocbot)
+
+    async def cog_unload(self):
+        self.live_tasklists.clear()
+        if profiles := self.bot.get_cog('ProfileCog'):
+            profiles.del_profile_migrator('tasklist-migrator')
+        self._unload_twitch_methods(self.crocbot)
 
     @log_wrap(action="Tasklist Profile Migration")
     async def migrate_profiles(self, source_profile: UserProfile, target_profile: UserProfile):
