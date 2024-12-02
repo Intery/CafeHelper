@@ -318,6 +318,20 @@ CREATE TABLE tasklist_reward_history(
   reward_count INTEGER
 );
 CREATE INDEX tasklist_reward_history_users ON tasklist_reward_history (userid, reward_time);
+
+CREATE TABLE tasklist_current(
+  taskid INTEGER PRIMARY KEY REFERENCES tasklist (taskid) ON DELETE CASCADE ON UPDATE CASCADE,
+  started_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE tasklist_planner(
+  taskid INTEGER PRIMARY KEY REFERENCES tasklist (taskid) ON DELETE CASCADE ON UPDATE CASCADE,
+  sortkey INTEGER
+);
+
+
+
+
 -- }}}
 
 -- Reminder data {{{

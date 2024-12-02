@@ -5,6 +5,7 @@ from data.columns import Integer, String, Timestamp, Bool
 
 
 class TasklistData(Registry):
+
     class Task(RowModel):
         """
         Row model describing a single task in a tasklist.
@@ -25,12 +26,6 @@ class TasklistData(Registry):
           last_updated_at TIMESTAMPTZ
         );
         CREATE INDEX tasklist_users ON tasklist (userid);
-
-        CREATE TABLE tasklist_channels(
-          guildid BIGINT NOT NULL REFERENCES guild_config (guildid) ON DELETE CASCADE,
-          channelid BIGINT NOT NULL
-        );
-        CREATE INDEX tasklist_channels_guilds ON tasklist_channels (guildid);
         """
         _tablename_ = "tasklist"
 
@@ -45,4 +40,24 @@ class TasklistData(Registry):
         last_updated_at = Timestamp()
         duration = Integer()
 
+    """
+    Schema
+    ------
+
+    CREATE TABLE tasklist_channels(
+            guildid BIGINT NOT NULL REFERENCES guild_config (guildid) ON DELETE CASCADE,
+            channelid BIGINT NOT NULL
+            );
+    CREATE INDEX tasklist_channels_guilds ON tasklist_channels (guildid);
+    """
     channels = Table('tasklist_channels')
+
+    """
+    Schema
+    ------
+    CREATE TABLE current_tasks(
+        taskid PRIMARY KEY REFERENCES tasklist (taskid) ON DELETE CASCADE ON UPDATE CASCADE,
+        last_started_at TIMESTAMPTZ NOT NULL
+    );
+    """
+    current_tasks = Table('current_tasks')

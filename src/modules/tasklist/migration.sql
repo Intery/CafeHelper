@@ -10,3 +10,14 @@ ALTER TABLE tasklist
 NOT VALID;
 ALTER TABLE tasklist
     ADD COLUMN duration INTEGER;
+
+    
+CREATE TABLE tasklist_current(
+  taskid INTEGER PRIMARY KEY REFERENCES tasklist (taskid) ON DELETE CASCADE ON UPDATE CASCADE,
+  started_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE tasklist_planner(
+  taskid INTEGER PRIMARY KEY REFERENCES tasklist (taskid) ON DELETE CASCADE ON UPDATE CASCADE,
+  sortkey INTEGER
+);

@@ -7,6 +7,7 @@ from discord.ext import commands as cmds
 from discord import app_commands as appcmds
 from discord.app_commands.transformers import AppCommandOptionType as cmdopt
 
+from data.queries import JOINTYPE
 from meta import LionBot, LionCog, LionContext
 from meta.logger import log_wrap
 from meta.errors import UserInputError
