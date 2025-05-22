@@ -29,13 +29,26 @@ class TwitchAuthCog(LionCog):
         self.bot = bot
         self.data = bot.db.load_registry(TwitchAuthData())
 
+        self.client_cache = {}
+
     async def cog_load(self):
         await self.data.init()
 
     # ----- Auth API -----
 
-    async def fetch_client_for(self, userid: int):
-        ...
+    async def fetch_client_for(self, userid: str):
+        authrow = await self.data.UserAuthRow.fetch(userid)
+        if authrow is None:
+            # TODO: Some user authentication error 
+            self.client_cache.pop(userid, None)
+            raise ValueError("Requested user is not authenticated.")
+        if (twitch := self.client_cache.get(userid)) is None:
+            twitch = await Twitch(self.bot.config.twitch['app_id'], self.bot.config.twitch['app_secret'])
+            scopes = await self.data.UserAuthRow.get_scopes_for(userid)
+            authscopes = [AuthScope(scope) for scope in scopes]
+            await twitch.set_user_authentication(authrow.access_token, authscopes, authrow.refresh_token)
+            self.client_cache[userid] = twitch
+        return twitch
 
     async def check_auth(self, userid: str, scopes: list[AuthScope] = []) -> bool:
         """
@@ -46,7 +59,9 @@ class TwitchAuthCog(LionCog):
         if authrow:
             if scopes:
                 has_scopes = await self.data.UserAuthRow.get_scopes_for(userid)
-                has_auth = set(map(str, scopes)).issubset(has_scopes)
+                desired = {scope.value for scope in scopes}
+                has_auth = desired.issubset(has_scopes)
+                logger.info(f"Auth check for `{userid}`: Requested scopes {desired}, has scopes {has_scopes}. Passed: {has_auth}")
             else:
                 has_auth = True
         else:
@@ -58,6 +73,7 @@ class TwitchAuthCog(LionCog):
         Start the user authentication flow for the given userid.
         Will request the given scopes along with the default ones and any existing scopes.
         """
+        self.client_cache.pop(userid, None)
         existing_strs = await self.data.UserAuthRow.get_scopes_for(userid)
         existing = map(AuthScope, existing_strs)
         to_request = set(existing).union(scopes)
@@ -79,6 +95,20 @@ class TwitchAuthCog(LionCog):
         if ctx.interaction:
             await ctx.interaction.response.defer(ephemeral=True)
         flow = await self.start_auth()
+        await ctx.reply(flow.auth.return_auth_url())
+        await flow.run()
+        await ctx.reply("Authentication Complete!")
+
+    @cmds.hybrid_command(name='modauth')
+    async def cmd_modauth(self, ctx: LionContext):
+        if ctx.interaction:
+            await ctx.interaction.response.defer(ephemeral=True)
+        scopes = [
+            AuthScope.MODERATOR_READ_FOLLOWERS,
+            AuthScope.CHANNEL_READ_REDEMPTIONS,
+            AuthScope.MODERATOR_MANAGE_CHAT_MESSAGES,
+        ]
+        flow = await self.start_auth(scopes=scopes)
         await ctx.reply(flow.auth.return_auth_url())
         await flow.run()
         await ctx.reply("Authentication Complete!")

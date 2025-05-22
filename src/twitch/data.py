@@ -64,7 +64,7 @@ class TwitchAuthData(Registry):
             """
             rows = await TwitchAuthData.user_scopes.select_where(userid=userid)
 
-            return [row.scope for row in rows] if rows else []
+            return [row['scope'] for row in rows] if rows else []
 
 
     """
