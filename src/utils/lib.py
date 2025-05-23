@@ -342,9 +342,9 @@ def strfdelta(delta: datetime.timedelta, sec=False, minutes=True, short=False) -
     return "".join(reply_msg)
 
 
-def _parse_dur(time_str: str) -> int:
+def parse_dur(time_str: str) -> int:
     """
-    Parses a user provided time duration string into a timedelta object.
+    Parses a user provided time duration string into an integer number of seconds.
 
     Parameters
     ----------
