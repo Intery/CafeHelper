@@ -49,11 +49,15 @@ class ReminderCog(LionCog):
 
     async def cog_load(self):
         await self.load_reminders()
+        self._load_twitch_methods(self.crocbot)
         self.loaded.set()
 
     async def ensure_loaded(self):
         if not self.loaded.is_set():
             await self.cog_load()
+
+    async def cog_unload(self):
+        self._unload_twitch_methods(self.crocbot)
 
     async def cog_check(self, ctx):
         await self.ensure_loaded()
