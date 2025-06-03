@@ -3,6 +3,8 @@ from enum import Enum
 from typing import Optional
 from datetime import timedelta
 
+from data.base import RawExpr
+from data.columns import Column
 import discord
 from discord.ext import commands as cmds
 from discord import app_commands as appcmds
@@ -165,7 +167,8 @@ class CounterCog(LionCog):
             )
             disc_cmds.append(
                 cmds.hybrid_command(
-                    name=row.name
+                    name=row.name,
+                    with_app_command=False,
                 )(self.discord_callback(counter_cb))
             )
 
@@ -177,18 +180,20 @@ class CounterCog(LionCog):
                 )
                 disc_cmds.append(
                     cmds.hybrid_command(
-                        name=row.lbname
+                        name=row.lbname,
+                        with_app_command=False,
                     )(self.discord_callback(lb_cb))
                 )
             if row.undoname:
                 twitch_cmds.append(
                     commands.command(
-                        name=row.undoname
+                        name=row.undoname,
                     )(self.twitch_callback(undo_cb))
                 )
                 disc_cmds.append(
                     cmds.hybrid_command(
-                        name=row.undoname
+                        name=row.undoname,
+                        with_app_command=False,
                     )(self.discord_callback(undo_cb))
                 )
 
@@ -370,6 +375,51 @@ class CounterCog(LionCog):
         await ctx.reply("Counter userid->profileid migration done.")
 
     # Counters commands
+    @commands.command()
+    async def counterslb(self, ctx: commands.Context, *, periodstr: Optional[str] = None):
+        """
+        Build a leaderboard of counter totals in the given period.
+        """
+        profiles = self.bot.get_cog('ProfileCog')
+        author = await profiles.fetch_profile_twitch(ctx.author)
+        userid = author.profileid 
+        community = await profiles.fetch_community_twitch(await ctx.channel.user())
+
+        period, start_time = await self.parse_period(community, periodstr or '')
+
+        query = self.data.CounterEntry.table.select_where()
+        query.group_by('counterid')
+        query.select('counterid', counter_total='SUM(value)')
+        query.order_by('counter_total', ORDER.DESC)
+        # query.where(Column('counter_total') > 0)
+        if start_time is not None:
+            query.where(self.data.CounterEntry.created_at >= start_time)
+        query.with_no_adapter()
+        results = await query
+        query.where(self.data.CounterEntry.userid == userid)
+        user_results = await query
+
+        lb = {result['counterid']: result['counter_total'] for result in results}
+        userlb = {result['counterid']: result['counter_total'] for result in user_results}
+
+        counters = await self.data.Counter.fetch_where(counterid=list(lb.keys()))
+        cmap = {c.counterid: c for c in counters}
+
+        parts = []
+        for cid, ctotal in lb.items():
+            if not ctotal:
+                continue
+            counter = cmap[cid]
+            user_total = userlb.get(cid) or 0
+
+            parts.append(f"{counter.name}: {ctotal}")
+
+        prefix = 'top 10 ' if len(parts) > 10 else ''
+        parts = parts[:10]
+
+        lbstr = '; '.join(parts)
+        await ctx.reply(f"Counters {period.value[-1]} {prefix}leaderboard -- {lbstr}")
+
     @commands.command()
     async def counter(self, ctx: commands.Context, name: str, subcmd: Optional[str], *, args: Optional[str]=None):
         if not (ctx.author.is_mod or ctx.author.is_broadcaster):
