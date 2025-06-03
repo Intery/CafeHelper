@@ -83,7 +83,7 @@ class FocusChannel(Channel):
 
 
 class HyperFocusCog(LionCog):
-    def __init__(self, bot: CrocBot):
+    def __init__(self, bot: LionBot):
         self.bot = bot
         self.crocbot: CrocBot = bot.crocbot
 
