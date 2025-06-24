@@ -103,7 +103,7 @@ class TimeCog(LionCog):
         name = name or await authprofile.get_name()
 
         if target:
-            tdiffstr = await self.time_diff(targettz, authtz, name)
+            tdiffstr = await self.time_diff(targettz, authtz, await authprofile.get_name())
             msg = f"The current time for {name} is {timestr}{tdiffstr}"
         else:
             msg = f"The current time for {name} is {timestr}"
