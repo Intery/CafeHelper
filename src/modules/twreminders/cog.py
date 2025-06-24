@@ -6,6 +6,8 @@ from typing import Optional
 from dataclasses import dataclass
 from collections import defaultdict
 
+from dateutil.parser import ParserError, parse
+
 import twitchio
 from twitchio.ext import commands
 import datetime as dt
@@ -18,9 +20,10 @@ from . import logger
 
 reminder_regex = re.compile(
     r"""
-    (^)?(?P<type> (?: \b in) | (?: every))
-    \s*(?P<duration> (?: day| hour| (?:\d+\s*(?:(?:d|h|m|s)[a-zA-Z]*)?(?:\s|and)*)+))
-    (?:(?(1) (?:, | ; | : | \. | to)? | $))
+    (^)?(?P<type> (?: \b in) | (?: every) | (?P<at> at))
+    \s*
+    (?(at) (?P<time> \d?\d (?: :\d\d)?\s*(?: am | pm)?) | (?P<duration> (?: day| hour| (?:\d+\s*(?:(?:d|h|m|s)[a-zA-Z]*)?(?:\s|and)*)+)))
+    (?:(?(1) (?:, | ; | : | \. | to)?\s+ | $ ))
     """,
     re.IGNORECASE | re.VERBOSE | re.DOTALL
 )
@@ -274,20 +277,53 @@ class ReminderCog(LionCog):
             # First parse it
             match = re.search(reminder_regex, args)
             if match:
-                repeating = match.group('type').lower() == 'every'
-
-                duration_str = match.group('duration').lower()
-                if duration_str.isdigit():
-                    # Default to minutes if no unit given
-                    duration = int(duration_str) * 60
-                elif duration_str in ('day', 'a day'):
-                    duration = 24 * 60 * 60
-                elif duration_str in ('hour', 'an hour'):
-                    duration = 60 * 60
-                else:
-                    duration = parse_dur(duration_str)
-
+                typ = match.group('type').lower().strip()
                 content = (args[:match.start()] + args[match.end():]).strip()
+                if typ in ('every', 'in'):
+                    repeating = typ == 'every'
+                    duration_str = match.group('duration').lower()
+                    if duration_str.isdigit():
+                        # Default to minutes if no unit given
+                        duration = int(duration_str) * 60
+                    elif duration_str in ('day', 'a day'):
+                        duration = 24 * 60 * 60
+                    elif duration_str in ('hour', 'an hour'):
+                        duration = 60 * 60
+                    else:
+                        duration = parse_dur(duration_str)
+
+                elif typ == 'at':
+                    # Get timezone for this member.
+                    profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+                    timezone = None
+                    discords = await profile.discord_accounts()
+                    if discords:
+                        userid = discords[0].userid 
+                        luser = await self.bot.core.lions.fetch_user(userid)
+                        if luser:
+                            timezone = luser.config.timezone.value
+                    if not timezone:
+                        return await ctx.reply(
+                            "Sorry, to use this you have to link your account with `/profiles link twitch` and set your timezone with '/my timezone' on the Discord!"
+                        )
+
+                    time_str = match.group('time').lower()
+                    if time_str.isdigit():
+                        # Assume it's an hour 
+                        time_str = time_str + ':00'
+                    default = dt.datetime.now(tz=timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+                    try:
+                        ts = parse(time_str, fuzzy=True, default=default)
+                    except ParserError:
+                        return await ctx.reply(
+                            "Sorry, I didn't understand your target time! Please use e.g. !remindme Remember to hydrate at 10pm"
+                        )
+                    while ts < dt.datetime.now(tz=timezone):
+                        ts += dt.timedelta(days=1)
+
+                    duration = (ts - dt.datetime.now(tz=timezone)).total_seconds()
+                    duration = int(duration)
+
                 if content.startswith('to '):
                     content = content[3:].strip()
             else:
