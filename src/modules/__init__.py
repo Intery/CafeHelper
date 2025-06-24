@@ -34,6 +34,7 @@ active_discord = [
     '.voiceroles',
     '.hyperfocus',
     '.twreminders',
+    '.time',
 ]
 
 async def setup(bot):
