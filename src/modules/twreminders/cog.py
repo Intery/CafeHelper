@@ -298,8 +298,8 @@ class ReminderCog(LionCog):
                     timezone = None
                     discords = await profile.discord_accounts()
                     if discords:
-                        userid = discords[0].userid 
-                        luser = await self.bot.core.lions.fetch_user(userid)
+                        luserid = discords[0].userid 
+                        luser = await self.bot.core.lions.fetch_user(luserid)
                         if luser:
                             timezone = luser.config.timezone.value
                     if not timezone:
