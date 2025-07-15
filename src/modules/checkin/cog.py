@@ -26,6 +26,7 @@ class CheckinCog(LionCog):
         self.eswebsockets = {}
 
     async def cog_load(self):
+        self._loop = asyncio.get_running_loop()
         self._load_twitch_methods(self.crocbot)
 
         check_in_channel_id = self.bot.config.croccy['check_in_channel'].strip()
@@ -37,7 +38,7 @@ class CheckinCog(LionCog):
     async def fetch_eventsub_for(self, channelid):
         if (eventsub := self.eswebsockets.get(channelid)) is None:
             authcog = self.bot.get_cog('TwitchAuthCog')
-            if not await authcog.check_auth(channelid, scopes=[AuthScope.channelid_READ_REDEMPTIONS]):
+            if not await authcog.check_auth(channelid, scopes=[AuthScope.CHANNEL_READ_REDEMPTIONS]):
                 logger.error(
                     f"Insufficient auth to login to registered check-in channelid {channelid}"
                 )
@@ -59,7 +60,7 @@ class CheckinCog(LionCog):
 
     async def handle_redeem(self, data: ChannelPointsCustomRewardRedemptionData):
         # Check if the redeem is one of the 'checkin' or 'quiet checkin' redeems.
-        title = data.event.title.lower()
+        title = data.event.reward.title.lower()
         # TODO: Redeem ID based registration (configured)
         seeking = ('check in', 'quiet hello')
         if title in seeking:
@@ -102,7 +103,7 @@ class CheckinCog(LionCog):
                 counterid=check_in_counter.counterid,
             )
             position = len(entries) + 1
-            if profile.profileid not in (e.userid for e in entries):
+            if profile.profileid not in (e['userid'] for e in entries):
                 # User has not already checked in!
                 # Check them in
                 # TODO: May be worth setting custom counter time
@@ -144,6 +145,10 @@ class CheckinCog(LionCog):
                         await channel.send(message)
 
     async def get_stream_start(self, channelid: str | int) -> Optional[datetime]:
+        future = asyncio.run_coroutine_threadsafe(self._get_stream_start(channelid), self._loop)
+        return future.result()
+
+    async def _get_stream_start(self, channelid: str | int) -> Optional[datetime]:
         streams = await self.crocbot.fetch_streams(user_ids=[int(channelid)])
         if streams:
             return streams[0].started_at
