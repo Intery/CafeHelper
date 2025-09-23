@@ -240,7 +240,7 @@ class HyperFocusCog(LionCog):
                 choice = "You"
             await ctx.reply(f"I choose: {choice}")
 
-    @commands.command(name='hyperfocus')
+    @commands.command(name='hyperfocus', alias=['hyperfcous', 'hyperofcus', 'hyperofucs'])
     async def hyperfocus_cmd(self, ctx, dur: Optional[int] = None):
         userid = str(ctx.author.id)
         now = utc_now()
