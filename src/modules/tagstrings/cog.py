@@ -1,4 +1,5 @@
 import asyncio
+import re
 from collections import defaultdict
 from typing import Optional
 import difflib
@@ -13,6 +14,8 @@ from .data import TagData
 
 
 class TagCog(LionCog):
+    tags_re = re.compile(r"#(?P<tag>[^\s]+)")
+
     def __init__(self, bot: LionBot):
         self.bot = bot
         self.crocbot = bot.crocbot
@@ -50,6 +53,24 @@ class TagCog(LionCog):
             await ctx.reply("Tasklists are still loading! Please wait a moment~")
             return False
         return True
+
+    @commands.Cog.event('event_message')
+    async def on_message(self, message: twitchio.Message):
+        # Check message for a tag string.
+        if message.author.id == self.crocbot.user_id:
+            return
+        matches = re.findall(self.tags_re, message.content)
+        if not matches:
+            return
+
+        channelid = int((await message.channel.user()).id)
+        tags = self.tags.get(channelid, {})
+
+        for match in matches:
+            tag = str(match).lower()
+            if tag in tags:
+                content = tags[tag].content
+                await message.channel.send(content)
 
     # API
 
