@@ -10,8 +10,8 @@ CREATE TABLE taskslist(
   duration INTEGER NOT NULL DEFAULT 0,
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
-  completed_in INTEGER NOT NULL REFERENCES communities(communityid) ON DELETE SET NULL,
-  _timestamp TIMESTAMPTZ DEFAILT NOW()
+  completed_in INTEGER REFERENCES communities(communityid) ON DELETE SET NULL,
+  _timestamp TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE TRIGGER tasklist_timestamp BEFORE UPDATE ON tasklist
   FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
@@ -19,7 +19,7 @@ CREATE TRIGGER tasklist_timestamp BEFORE UPDATE ON tasklist
 
 CREATE TABLE nowlist(
   taskid INTEGER PRIMARY KEY REFERENCES taskslist(taskid) ON DELETE CASCADE ON UPDATE CASCADE,
-  last_started TIMESTAMPTZ NOT NULL
+  last_started TIMESTAMPTZ
 );
 
 CREATE TABLE taskplan(
@@ -34,7 +34,7 @@ CREATE TABLE task_profiles(
 );
 
 CREATE VIEW
-  taskslist_info,
+  taskslist_info
 AS
   SELECT
     taskslist.taskid AS taskid,
@@ -52,7 +52,7 @@ AS
     (taskslist.completed_at IS NOT NULL) AS is_complete,
     (nowlist.taskid IS NOT NULL) AS is_running,
     (taskplan.order_idx IS NOT NULL) AS is_planned,
-  (row_number() OVER (PARITION BY profileid ORDER BY taskid ASC)) AS tasklabel
+    (row_number() OVER (PARTITION BY profileid ORDER BY taskid ASC)) AS tasklabel
   FROM
     taskslist 
     LEFT JOIN nowlist USING (taskid)
@@ -64,37 +64,27 @@ AS
 
 -- }}}
 
-INSERT INTO taskslist (
-  profileid,
-  content,
-  started_at,
-  completed_at
-) VALUES (
+INSERT INTO taskslist (profileid, content, started_at, completed_at)
   SELECT 
-    userid,
-    task,
-    started_at,
-    done_at
+    CAST(userid AS INTEGER) AS profileid,
+    task AS content,
+    started_at AS started_at,
+    done_at AS completed_at
   FROM
-    nowlist_tasks
-);
+    nowlist_tasks;
 
-INSERT INTO nowlist (
-  taskid,
-  last_started
-) VALUES (
+INSERT INTO nowlist (taskid, last_started)
   SELECT 
     taskid,
     CASE WHEN completed_at IS NOT NULL THEN NULL
          ELSE started_at
-    END
+    END AS last_started
   FROM 
-    taskslist
-);
+    taskslist;
 
-UDPATE user_profiles
+UPDATE user_profiles
   SET nickname = nowlist_tasks.name 
   FROM nowlist_tasks
-  WHERE user_profiles.profileid = nowlist_tasks.userid;
+  WHERE user_profiles.profileid = CAST(nowlist_tasks.userid AS INTEGER);
 
 COMMIT;

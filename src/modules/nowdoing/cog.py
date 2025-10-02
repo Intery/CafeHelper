@@ -34,7 +34,10 @@ class NowDoingChannel(Channel):
         await self.reload_tasklist(websocket=websocket)
 
     def task_args(self, task: TaskInfo, profile: UserProfile):
-        fake_started_at = utc_now() - timedelta(seconds=task.total_duration)
+        if task.is_complete:
+            fake_started_at = task.started_at
+        else:
+            fake_started_at = utc_now() - timedelta(seconds=task.total_duration)
         return (
             task.profileid,
             profile.profile_row.nickname or str(task.profileid),
@@ -48,7 +51,7 @@ class NowDoingChannel(Channel):
         Clear tasklist and re-send current tasks.
         """
         await self.send_clear(websocket=websocket)
-        for task in self.cog.tasks.values():
+        for task in await self.cog.tasker.get_nowlist():
             profile = await self.cog.bot.get_cog('ProfileCog').fetch_profile_by_id(task.profileid)
             await self.send_set(*self.task_args(task, profile), websocket=websocket)
 
@@ -301,7 +304,6 @@ class NowDoingCog(LionCog):
 
         # TODO: We can actually create the task here if it's not done.
 
-        profile = await self.get_profile_for(ctx.author)
         tasklist = await self.tasker.get_tasklist(profile.profileid)
         current = tasklist.get_current()
 
@@ -312,7 +314,7 @@ class NowDoingCog(LionCog):
 
         if tasks:
             # Complete the tasks
-            completed = await tasklist.complete_tasks(task.taskid for task in tasks)
+            completed = await tasklist.complete_tasks(*[task.taskid for task in tasks])
 
             # Response depends on how many tasks were complete
             # Don't show if duration is less than 30 seconds
