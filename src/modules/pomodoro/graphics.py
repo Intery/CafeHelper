@@ -26,7 +26,8 @@ async def get_timer_card(bot: LionBot, timer: 'Timer', stage: 'Stage'):
     guildid = timer.data.guildid
     for member in timer.members:
         profile = await bot.get_cog('ProfileCog').fetch_profile_discord(member)
-        task = nowcog.tasks.get(profile.profileid, None)
+        # task = nowcog.tasks.get(profile.profileid, None)
+        task = None
         tag = ''
         session_duration = 0
 
