@@ -1,29 +1,78 @@
-from data import Registry, RowModel
-from data.columns import Integer, Timestamp, String
+import datetime as dt
+
+from data import Registry, RowModel, Table
+from data.columns import String, Timestamp, Integer, Bool 
 
 
-class NowListData(Registry):
-    class Task(RowModel):
-        """
-        Schema
-        ------
-        CREATE TABLE nowlist_tasks(
-            userid BIGINT PRIMARY KEY,
-            name TEXT NOT NULL,
-            task TEXT NOT NULL,
-            started_at TIMESTAMPTZ NOT NULL,
-            done_at TIMESTAMPTZ
-        );
-        """
-        _tablename_ = 'nowlist_tasks'
-        _cache_ = {}
+class Task(RowModel):
+    """
+    Schema
+    ------
+    """
+    _tablename_ = 'taskslist'
+    _cache_ = {}
 
-        userid = Integer(primary=True)
-        name = String()
-        task = String()
-        started_at = Timestamp()
-        done_at = Timestamp()
+    taskid = Integer(primary=True)
+    profileid = Integer()
+    content = String()
+    created_at = Timestamp()
+    deleted_at = Timestamp()
+    duration = Integer()
+    started_at = Timestamp()
+    completed_at = Timestamp()
+    completed_in = Integer()
+    _timestamp = Timestamp()
 
-        @property
-        def is_done(self):
-            return self.done_at is not None
+
+class TaskProfile(RowModel):
+    """
+    Schema
+    ------
+    """
+    _tablename_ = 'task_profiles'
+    _cache_ = {}
+
+    profileid = Integer(primary=True)
+    show_tips = Bool()
+    show_encouragement = Bool()
+
+
+class TaskInfo(RowModel):
+    _tablename_ = 'taskslist_info'
+
+    taskid = Integer(primary=True)
+    profileid = Integer()
+    content = String()
+    created_at = Timestamp()
+    duration = Integer()
+    started_at = Timestamp()
+    completed_at = Timestamp()
+    completed_in = Integer()
+
+    last_started = Timestamp()
+    order_idx = Integer()
+    is_running = Bool()
+    is_planned = Bool()
+    is_complete = Bool()
+
+    show_tips = Bool()
+    show_encouragement = Bool()
+
+    tasklabel = Integer()
+
+    @property
+    def total_duration(self):
+        dur = self.duration
+        if self.is_running and self.last_started:
+            dur += (dt.datetime.now(tz=dt.UTC) - self.last_started).total_seconds()
+        return int(dur)
+
+
+
+class TaskData(Registry):
+    tasklist = Task.table 
+    task_profiles = TaskProfile.table
+    tasklist_info = TaskInfo.table
+
+    nowlist = Table('nowlist')
+    taskplan = Table('taskplan')
