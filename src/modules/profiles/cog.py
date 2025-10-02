@@ -109,6 +109,9 @@ class ProfileCog(LionCog):
         profile = await UserProfile.fetch_from_discordid(self.bot, user.id)
         if profile is None:
             profile = await UserProfile.create_from_discord(self.bot, user)
+        target_nick = user.display_name
+        if target_nick and profile.profile_row.nickname != target_nick:
+            await profile.profile_row.update(nickname=target_nick)
         return profile
 
     async def fetch_profile_twitch(self, user: twitchio.User) -> UserProfile:
@@ -118,6 +121,10 @@ class ProfileCog(LionCog):
         profile = await UserProfile.fetch_from_twitchid(self.bot, user.id)
         if profile is None:
             profile = await UserProfile.create_from_twitch(self.bot, user)
+
+        target_nick = user.name
+        if target_nick and profile.profile_row.nickname != target_nick:
+            await profile.profile_row.update(nickname=target_nick)
         return profile
 
     # Community API

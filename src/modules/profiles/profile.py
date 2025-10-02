@@ -32,17 +32,17 @@ class UserProfile:
         return f"<UserProfile profileid={self.profileid} profile={self.profile_row}>"
 
     async def get_name(self):
-        # TODO: Store a preferred name in the profile preferences
         # TODO Should have a multi-fetch system
-        name = None
-        twitches = await self.twitch_accounts()
-        if twitches:
-            users = await self.bot.crocbot.fetch_users(
-                    ids=[int(twitches[0].userid)]
-            )
-            if users:
-                user = users[0]
-                name = user.display_name
+        name = self.profile_row.nickname
+        if not name:
+            twitches = await self.twitch_accounts()
+            if twitches:
+                users = await self.bot.crocbot.fetch_users(
+                        ids=[int(twitches[0].userid)]
+                )
+                if users:
+                    user = users[0]
+                    name = user.display_name
 
         if not name:
             discords = await self.discord_accounts()
@@ -52,6 +52,9 @@ class UserProfile:
 
         if not name:
             name = 'Unknown'
+
+        if name is not None and self.profile_row.nickname is None:
+            await self.profile_row.update(nickname=name)
 
         return name
 
