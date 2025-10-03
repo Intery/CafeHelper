@@ -124,6 +124,9 @@ class Tasklist:
         await self.unset_now()
         task = self.id_tasks[taskid]
         await self.data.nowlist.insert(taskid=taskid, last_started=None if task.is_complete else utc_now())
+        if task.started_at is None:
+            await self.data.tasklist.update_where(taskid=taskid).set(started_at=utc_now())
+
         await self.on_update()
 
     async def unset_now(self):

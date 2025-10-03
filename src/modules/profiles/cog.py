@@ -122,9 +122,10 @@ class ProfileCog(LionCog):
         if profile is None:
             profile = await UserProfile.create_from_twitch(self.bot, user)
 
-        target_nick = user.name
-        if target_nick and profile.profile_row.nickname != target_nick:
-            await profile.profile_row.update(nickname=target_nick)
+        if hasattr(user, 'name'):
+            target_nick = user.name
+            if target_nick and profile.profile_row.nickname != target_nick:
+                await profile.profile_row.update(nickname=target_nick)
         return profile
 
     # Community API

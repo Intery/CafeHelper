@@ -35,7 +35,7 @@ class NowDoingChannel(Channel):
 
     def task_args(self, task: TaskInfo, profile: UserProfile):
         if task.is_complete:
-            fake_started_at = task.started_at
+            fake_started_at = task.completed_at - timedelta(seconds=task.total_duration)
         else:
             fake_started_at = utc_now() - timedelta(seconds=task.total_duration)
         return (
