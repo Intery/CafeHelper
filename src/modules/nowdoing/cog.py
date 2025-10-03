@@ -1,10 +1,13 @@
 import asyncio
+from collections import defaultdict
 import datetime as dt
 from datetime import datetime, timedelta
 import json
 import os
 from typing import Optional
 
+from data.conditions import NULL
+from data.queries import ORDER
 import discord
 from discord.ext import commands as cmds
 from discord import app_commands as appcmds
@@ -16,10 +19,11 @@ from modules.profiles.profile import UserProfile
 
 from meta import CrocBot, LionCog, LionContext, LionBot
 from meta.sockets import Channel, register_channel
-from utils.lib import strfdelta, utc_now
+from utils.lib import pager, paginate_list, strfdelta, utc_now
 from . import logger
-from .data import TaskData, TaskInfo
+from .data import Task, TaskData, TaskInfo
 from .tasklist import Tasklist, TaskRegistry
+from .lib import codetable
 
 
 class NowDoingChannel(Channel):
@@ -393,3 +397,130 @@ class NowDoingCog(LionCog):
                 "You don't have a current task set! "
                 "Show what you are working on with e.g. !now Reading notes"
             )
+
+    @cmds.hybrid_command(
+        name='history',
+        aliases=['hist', 'taskhist']
+    )
+    async def disc_hist(self, ctx: LionContext):
+        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        profileid = profile.profileid
+
+        tasklist = await self.tasker.get_tasklist(profileid)
+        current = tasklist.get_current()
+
+        # Get all complete tasks
+        tasks = await Task.fetch_where(
+            Task.completed_at != NULL,
+            profileid=profileid,
+        ).order_by(Task.completed_at.name, ORDER.DESC)
+
+        # Get user timezone
+        tz = ctx.alion.timezone
+        today = ctx.alion.today
+
+        # Bin tasks by days desc
+        bins = defaultdict(list)  # daydiff -> list[tasks]
+        i = 0
+        day = today
+        daydiff = 0
+        daymap: dict[int, datetime] = {daydiff: day}
+        while i < len(tasks):
+            task = tasks[i]
+            if task.completed_at >= day:
+                bins[daydiff].append(task)
+                i += 1
+            else:
+                daydiff += 1
+                day -= timedelta(hours=1)
+                day = day.replace(hour=0, minute=0, second=0, microsecond=0)
+                daymap[daydiff] = day
+
+        if current and not current.is_complete:
+            # Excluding complete here because it would already be in tasks
+            bins[0].append(current)
+
+        # Make the pages
+        titles = []  # Days, will need to add pagen
+        page_data = []
+        for daydiff, bin in bins.items():
+            if not bin:
+                # Exclude any empty bins
+                continue
+            day = daymap[daydiff]
+            titles.append(
+                'Tasksheet for ' + day.strftime('%A, %d %b %Y') + f" ({str(tz)})"
+            )
+
+            rows = []
+            for task in sorted(bin, key=lambda task: task.started_at or today):
+                task: Task | TaskInfo
+                ID = str(task.taskid)
+                start = task.started_at.astimezone(tz).strftime('%H:%M')
+                if task.started_at < day:
+                    # Technically if seconds and microseconds are 0, this will be off by 1
+                    diff = (day - task.started_at).days + 1
+                    start = f"(-{diff}) {start}"
+                if task.completed_at:
+                    end = task.completed_at.astimezone(tz).strftime('%H:%M')
+                else:
+                    end = 'NOW'
+
+                period = f"{start} - {end}"
+                # If task is not completed, it will be current, hence be TaskInfo
+                secs = task.total_duration if not task.completed_at else task.duration  # type: ignore
+                hours, rem = divmod(secs, 3600)
+                min, sec = divmod(rem, 60)
+                if hours > 0:
+                    duration = f"{hours:02d}:{min:02d}:{sec:02d}"
+                else:
+                    duration = f"{min:02d}:{sec:02d}"
+                if len(task.content) > 100:
+                    content = task.content[:97] + '...'
+                else:
+                    content = task.content
+                content = content.replace('`', '')
+
+                rows.append((
+                    ID, period, duration, content
+                ))
+            page_data.append(rows)
+
+        # Add the page numbers if needed
+        if (count := len(titles)) > 1 :
+            for i in range(count):
+                titles[i] += f" (Page {i+1}/{count})"
+
+        # Create the output
+        headers = ('ID', 'Period', 'Duration', 'Task')
+        justify = ('^', '<', '>', '<')
+        justify_head = ('^', '^', '^', '<')
+
+        # TODO: Makes it incompatible with DM
+        if not ctx.alion.luser.config.timezone.value:
+            tip = "**TIP:** Set your timezone with `/my timezone`!"
+        else:
+            tip = ""
+
+        pages = []
+        for title, rows in zip(titles, page_data):
+            page = tip + codetable(
+                headers=headers,
+                justify=justify,
+                justify_head=justify_head,
+                data=rows,
+                title=title,
+            )
+            pages.append(page)
+
+        if pages:
+            await pager(ctx, pages, add_cancel=True)
+        else:
+            message = "No tasks completed yet (since we started recording completed tasks)!"
+            await ctx.reply(message)
+
+
+
+
+
+
