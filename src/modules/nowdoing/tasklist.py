@@ -110,7 +110,9 @@ class Tasklist:
 
     async def set_plan(self, *taskids: int):
         # TODO: Should really be in a transaction
-        await self.data.taskplan.delete_where(profileid=self.profileid)
+        # TODO: Should change how the plan works for data health
+        if self.plan:
+            await self.data.taskplan.delete_where(taskid=self.plan)
         if taskids:
             plan_data = zip(taskids, range(len(taskids)))
             await self.data.taskplan.insert_many(('taskid', 'order_idx'), *plan_data)
