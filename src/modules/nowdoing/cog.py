@@ -27,9 +27,9 @@ from .lib import codetable
 
 
 class NowDoingChannel(Channel):
-    name = 'NowList'
+    name = "NowList"
 
-    def __init__(self, cog: 'NowDoingCog', **kwargs):
+    def __init__(self, cog: "NowDoingCog", **kwargs):
         self.cog = cog
         super().__init__(**kwargs)
 
@@ -56,38 +56,43 @@ class NowDoingChannel(Channel):
         """
         await self.send_clear(websocket=websocket)
         for task in await self.cog.tasker.get_nowlist():
-            profile = await self.cog.bot.get_cog('ProfileCog').fetch_profile_by_id(task.profileid)
+            profile = await self.cog.bot.get_cog("ProfileCog").fetch_profile_by_id(
+                task.profileid
+            )
             await self.send_set(*self.task_args(task, profile), websocket=websocket)
 
     async def send_set(self, userid, name, task, start_at, end_at, websocket=None):
-        await self.send_event({
-            'type': "DO",
-            'method': "setTask",
-            'args': {
-                'userid': userid,
-                'name': name,
-                'task': task,
-                'start_at': start_at,
-                'end_at': end_at,
-            }
-        }, websocket=websocket)
+        await self.send_event(
+            {
+                "type": "DO",
+                "method": "setTask",
+                "args": {
+                    "userid": userid,
+                    "name": name,
+                    "task": task,
+                    "start_at": start_at,
+                    "end_at": end_at,
+                },
+            },
+            websocket=websocket,
+        )
 
     async def send_del(self, userid, websocket=None):
-        await self.send_event({
-            'type': "DO",
-            'method': "delTask",
-            'args': {
-                'userid': userid,
-            }
-        }, websocket=websocket)
+        await self.send_event(
+            {
+                "type": "DO",
+                "method": "delTask",
+                "args": {
+                    "userid": userid,
+                },
+            },
+            websocket=websocket,
+        )
 
     async def send_clear(self, websocket=None):
-        await self.send_event({
-            'type': "DO",
-            'method': "clearTasks",
-            'args': {
-            }
-        }, websocket=websocket)
+        await self.send_event(
+            {"type": "DO", "method": "clearTasks", "args": {}}, websocket=websocket
+        )
 
 
 class NowDoingCog(LionCog):
@@ -105,15 +110,17 @@ class NowDoingCog(LionCog):
         await self.data.init()
         await self.tasker.setup()
 
-        self.bot.get_cog('ProfileCog').add_profile_migrator(self.migrate_profiles, name='task-migrator')
+        self.bot.get_cog("ProfileCog").add_profile_migrator(
+            self.migrate_profiles, name="task-migrator"
+        )
 
         self._load_twitch_methods(self.crocbot)
         self.loaded.set()
 
     async def cog_unload(self):
         self.loaded.clear()
-        if profiles := self.bot.get_cog('ProfileCog'):
-            profiles.del_profile_migrator('task-migrator')
+        if profiles := self.bot.get_cog("ProfileCog"):
+            profiles.del_profile_migrator("task-migrator")
         self._unload_twitch_methods(self.crocbot)
 
     async def dispatch_update(self, tasklist: Tasklist, profile):
@@ -124,7 +131,9 @@ class NowDoingCog(LionCog):
             args = self.channel.task_args(current, profile)
             await self.channel.send_set(*args)
 
-    async def migrate_profiles(self, source_profile: UserProfile, target_profile: UserProfile):
+    async def migrate_profiles(
+        self, source_profile: UserProfile, target_profile: UserProfile
+    ):
         # TODO
         """
         Move current source task to target profile if there's room for it, otherwise annihilate
@@ -146,15 +155,16 @@ class NowDoingCog(LionCog):
             profileid=source_profile.profileid
         ).set(profileid=target_profile.profileid)
 
-        results.append(
-            f"Migrated {len(rows)} tasks from source tasklist."
-        )
+        results.append(f"Migrated {len(rows)} tasks from source tasklist.")
 
         await target_tasklist.set_plan(*new_plan)
         # TODO: Something with profile settings
 
         if source_task:
-            if target_task and (target_task.is_complete or target_task.started_at < source_task.started_at):
+            if target_task and (
+                target_task.is_complete
+                or target_task.started_at < source_task.started_at
+            ):
                 # If target is done, remove it so we can overwrite
                 results.append("Unset older running task from target tasklist.")
                 target_task = None
@@ -162,7 +172,9 @@ class NowDoingCog(LionCog):
             if not target_task:
                 # Update source task with new profile id
                 await target_tasklist.set_now(source_task.taskid)
-                results.append("Migrated 1 currently running task from source tasklist.")
+                results.append(
+                    "Migrated 1 currently running task from source tasklist."
+                )
             else:
                 # If there is a target task we can't overwrite, just delete the source task
                 results.append("Ignoring older running task from source tasklist.")
@@ -170,7 +182,7 @@ class NowDoingCog(LionCog):
         await self.dispatch_update(source_tasklist, source_profile)
         await self.dispatch_update(target_tasklist, target_profile)
 
-        return ' '.join(results)
+        return " ".join(results)
 
     async def cog_check(self, ctx):
         if not self.loaded.is_set():
@@ -178,7 +190,12 @@ class NowDoingCog(LionCog):
             return False
         return True
 
-    async def now(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str] = None):
+    async def now(
+        self,
+        ctx: commands.Context | LionContext,
+        profile: UserProfile,
+        args: Optional[str] = None,
+    ):
         args = args.strip() if args else None
         profileid = profile.profileid
 
@@ -186,10 +203,22 @@ class NowDoingCog(LionCog):
         current = tasklist.get_current()
 
         if args:
-            task, = await tasklist.create_tasks(args)
-            await tasklist.set_now(task.taskid)
-            await self.dispatch_update(tasklist, profile)
-            await ctx.reply("Updated your current task, good luck!")
+            tasks = await tasklist.parse_taskspec(args)
+            if len(tasks) > 1:
+                await tasklist.push_plan_head(*(task.taskid for task in tasks))
+                task = tasks[0]
+                await tasklist.set_now(task.taskid)
+                await self.dispatch_update(tasklist, profile)
+                await ctx.reply(
+                    f"Set your current task to '#{task.tasklabel}: {task.content}' and added {len(tasks) - 1} more to your !plan. Good luck! (TIP: Use !next to mark your current task as done and start the next task!)"
+                )
+            elif len(tasks) == 1:
+                task = tasks[0]
+                await tasklist.set_now(task.taskid)
+                await self.dispatch_update(tasklist, profile)
+                await ctx.reply("Updated your current task, good luck!")
+            else:
+                await ctx.reply("Could not parse any tasks from the arguments given!")
             # TODOv1: Add information about pushed back task
         elif current:
             if current.is_complete:
@@ -206,23 +235,135 @@ class NowDoingCog(LionCog):
                 "Show what you are working on with e.g. !now Reading notes"
             )
 
+    async def notnow(self, ctx: commands.Context | LionContext, profile: UserProfile):
+        profileid = profile.profileid
+
+        tasklist = await self.tasker.get_tasklist(profileid)
+        current = tasklist.get_current()
+        if current:
+            await tasklist.unset_now()
+            if current.is_complete:
+                await self.dispatch_update(tasklist, profile)
+                await ctx.reply(f"Unset your completed task!")
+            else:
+                await tasklist.push_plan_head(current.taskid)
+                await self.dispatch_update(tasklist, profile)
+                await ctx.reply(
+                    f"Unset your task '#{current.tasklabel}: {current.content}' and pushed it onto your plan! Use !next when you want to resume it."
+                )
+        else:
+            await ctx.reply("You don't have a current task running!")
+
+    async def sidequest(
+        self,
+        ctx: commands.Context | LionContext,
+        profile: UserProfile,
+        args: Optional[str] = None,
+    ):
+        """
+        Started your sidequest '...', good luck!
+        Started your sidequest '...', and pushed n more tasks onto your !plan, good luck!
+
+        Started your sidequest '...', and pushed n+1 more onto your !plan, including your main quest '#i: ...'. Good luck!
+        Started your sidequest '...', good luck! When you are done use !next to resume your main quest '#i: ...'
+        """
+        profileid = profile.profileid
+        tasklist = await self.tasker.get_tasklist(profileid)
+        current = tasklist.get_current()
+
+        if not args:
+            await ctx.reply(
+                "No sidequest given, nothing to do! \n"
+                "USAGE: `!sidequest <new-task>` pushes your current task onto your !plan, and starts `new-task`!"
+            )
+            return
+
+        tasks = await tasklist.parse_taskspec(args)
+        if not tasks:
+            await ctx.reply("Given taskspec did not match any tasks! Nothing to do.")
+            return
+
+        # Put current task on head of plan
+        if current and not current.is_complete:
+            await tasklist.push_plan_head(current.taskid)
+
+        new_current, remaining = tasks[0], tasks[1:]
+        await tasklist.set_now(new_current.taskid)
+        await self.dispatch_update(tasklist, profile)
+        if remaining:
+            # Sidequest tasks only go on the plan if we have multiple tasks
+            # Kinda same logic as !now
+            await tasklist.push_plan_head(*(task.taskid for task in tasks))
+            if current:
+                await ctx.reply(
+                    f"Started your sidequest `{new_current.content}`, "
+                    f"and pushed {len(tasks)} more tasks onto your !plan, "
+                    f"including your main quest `#{current.tasklabel}: {current.content}`. "
+                    f"Good luck!"
+                )
+            else:
+                await ctx.reply(
+                    f"Started your sidequest `{new_current.content}`, "
+                    f"and pushed {len(tasks)} more tasks onto your !plan. "
+                    f"Good luck!"
+                )
+        else:
+            if current:
+                await ctx.reply(
+                    f"Started your sidequest `{new_current.content}`, good luck!\n "
+                    "When you are done use `!next` to resume your main quest "
+                    f"`#{current.tasklabel}: {current.content}`."
+                )
+            else:
+                await ctx.reply(
+                    f"Started your sidequest `{new_current.content}`, good luck!"
+                )
+
     @commands.command(
-        name='now',
-        aliases=['task', 'check']
+        name="sidequest",
     )
-    async def twi_now(self, ctx: commands.Context, *, args: Optional[str] = None):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
-        await self.now(ctx, profile, args)
+    async def twi_sidequest(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
+        await self.sidequest(ctx, profile, args)
 
     @cmds.hybrid_command(
-        name='now',
-        aliases=['task', 'check']
+        name="sidequest",
     )
-    async def disc_now(self, ctx: LionContext, *, args: Optional[str] = None):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+    async def disc_sidequest(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
+        await self.sidequest(ctx, profile, args)
+
+    @commands.command(name="notnow", aliases=["pause"])
+    async def twi_notnow(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
+        await self.notnow(ctx, profile)
+
+    @cmds.hybrid_command(
+        name="notnow",
+        aliases=[
+            "pause",
+        ],
+    )
+    async def disc_notnow(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
+        await self.notnow(ctx, profile)
+
+    @commands.command(name="now", aliases=["task", "check"])
+    async def twi_now(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
         await self.now(ctx, profile, args)
 
-    async def edit(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str] = None):
+    @cmds.hybrid_command(name="now", aliases=["task", "check"])
+    async def disc_now(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
+        await self.now(ctx, profile, args)
+
+    async def edit(
+        self,
+        ctx: commands.Context | LionContext,
+        profile: UserProfile,
+        args: Optional[str] = None,
+    ):
         args = args.strip() if args else None
         profileid = profile.profileid
 
@@ -235,7 +376,7 @@ class NowDoingCog(LionCog):
             await self.dispatch_update(tasklist, profile)
             await ctx.reply("Updated your current task!")
         else:
-            # Error with nothing to edit 
+            # Error with nothing to edit
             # Will change for v1
             await ctx.reply(
                 "You don't have a current task to edit! "
@@ -243,27 +384,25 @@ class NowDoingCog(LionCog):
             )
 
     @commands.command(
-        name='edit',
+        name="edit",
     )
     async def twi_edit(self, ctx: commands.Context, *, args: Optional[str] = None):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
         await self.edit(ctx, profile, args)
 
     @cmds.hybrid_command(
-        name='edit',
+        name="edit",
     )
     async def disc_edit(self, ctx: LionContext, *, args: Optional[str] = None):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.edit(ctx, profile, args)
 
-    async def nownext(self, ctx: commands.Context | LionContext, profile: UserProfile, args: Optional[str]): 
-        if not args:
-            await ctx.reply(
-                f"Usage:{ctx.prefix}next <next task> "
-                f"TIP: {ctx.prefix}next completes your current task and sets the given task as your new current task."
-            )
-            return
-
+    async def nownext(
+        self,
+        ctx: commands.Context | LionContext,
+        profile: UserProfile,
+        args: Optional[str],
+    ):
         args = args.strip() if args else None
         profileid = profile.profileid
 
@@ -272,35 +411,53 @@ class NowDoingCog(LionCog):
 
         # Complete the current task if it exists
         if current and not current.is_complete:
-            current, = await tasklist.complete_tasks(current.taskid)
+            (current,) = await tasklist.complete_tasks(current.taskid)
 
-        new_current, = await tasklist.create_tasks(args)
-        await tasklist.set_now(new_current.taskid)
+        plan = tasklist.get_plan()
 
+        if not args:
+            if not plan:
+                next_msg = "You don't have any tasks on your !plan to set next ! Use e.g. '!now Reading Notes' to show what you are working on"
+                new_current = None
+            else:
+                new_current = next((t for t in plan if not t.is_complete), None)
+                if not new_current:
+                    next_msg = (
+                        "You have completed all the tasks on your plan, good job!"
+                    )
+                else:
+                    next_msg = f"Started your next task '#{new_current.tasklabel}: {new_current.content}', good luck!"
+        else:
+            (new_current,) = await tasklist.create_tasks(args)
+            next_msg = (
+                f"Good luck with '#{new_current.tasklabel}: {new_current.content}'!"
+            )
+
+        if new_current:
+            await tasklist.set_now(new_current.taskid)
         await self.dispatch_update(tasklist, profile)
+
         if current:
             started_ago = strfdelta(timedelta(seconds=current.total_duration))
             await ctx.reply(
-                "Completed your current task and started your next one! Good luck! "
-                f"You worked on '{current.content}' for {started_ago}"
+                f"Good work finishing '{current.content}', "
+                f"you worked on it for {started_ago}. " + next_msg
             )
         else:
-            await ctx.reply(
-                "Started your next task, good luck!"
-            )
+            await ctx.reply(next_msg)
 
     @commands.command(
-        name='next',
+        name="next",
     )
     async def twi_next(self, ctx: commands.Context, *, args: Optional[str] = None):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
         await self.nownext(ctx, profile, args)
 
     @cmds.hybrid_command(
-        name='next',
+        name="next",
     )
     async def disc_next(self, ctx: LionContext, *, args: Optional[str] = None):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.nownext(ctx, profile, args)
 
     async def done(self, ctx: commands.Context | LionContext, profile: UserProfile):
@@ -355,31 +512,31 @@ class NowDoingCog(LionCog):
             )
 
     @commands.command(
-        name='done',
+        name="done",
     )
     async def twi_done(self, ctx: commands.Context):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
         await self.done(ctx, profile)
 
     @cmds.hybrid_command(
-        name='done',
+        name="done",
     )
     async def disc_done(self, ctx: LionContext):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.done(ctx, profile)
 
     @commands.command(
-        name='clear',
+        name="clear",
     )
     async def twi_clear(self, ctx: commands.Context):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_twitch(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
         await self.clear(ctx, profile)
 
     @cmds.hybrid_command(
-        name='clear',
+        name="clear",
     )
     async def disc_clear(self, ctx: LionContext):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.clear(ctx, profile)
 
     async def clear(self, ctx: commands.Context | LionContext, profile):
@@ -398,12 +555,45 @@ class NowDoingCog(LionCog):
                 "Show what you are working on with e.g. !now Reading notes"
             )
 
-    @cmds.hybrid_command(
-        name='history',
-        aliases=['hist', 'taskhist']
-    )
+    async def planner(
+        self,
+        ctx: LionContext | commands.Context,
+        profile: UserProfile,
+        args: Optional[str] = None,
+    ):
+        profileid = profile.profileid
+        tasklist = await self.tasker.get_tasklist(profileid)
+
+        # TODO: Initial version will just have a basic list.
+        if args:
+            tasks = await tasklist.parse_taskspec(args)
+            if not tasks:
+                await ctx.reply("Provided taskspec did not match any tasks!")
+                return
+            await tasklist.push_plan_tail(*(task.taskid for task in tasks))
+
+            if len(tasks) == 1:
+                task = tasks[0]
+                await ctx.reply(
+                    f"Added `#{task.tasklabel}: {task.content}` to your plan."
+                )
+            else:
+                await ctx.reply(f"Added {len(tasks)} to your plan! Good luck!")
+        elif plan := tasklist.get_plan():
+            parts = []
+            for task in plan:
+                parts.append(f"#{task.tasklabel}: {task.content}")
+            joined = "; ".join(parts)
+            await ctx.reply("Your plan is: \n" + joined)
+        else:
+            await ctx.reply(
+                "You don't have any tasks on your plan! "
+                "Use !now to show what you are working on, e.g. `!now Reading` or `!now Reading; Writing`"
+            )
+
+    @cmds.hybrid_command(name="history", aliases=["hist", "taskhist"])
     async def disc_hist(self, ctx: LionContext):
-        profile = await self.bot.get_cog('ProfileCog').fetch_profile_discord(ctx.author)
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         profileid = profile.profileid
 
         tasklist = await self.tasker.get_tasklist(profileid)
@@ -449,22 +639,22 @@ class NowDoingCog(LionCog):
                 continue
             day = daymap[daydiff]
             titles.append(
-                'Tasksheet for ' + day.strftime('%A, %d %b %Y') + f" ({str(tz)})"
+                "Tasksheet for " + day.strftime("%A, %d %b %Y") + f" ({str(tz)})"
             )
 
             rows = []
             for task in sorted(bin, key=lambda task: task.started_at or today):
                 task: Task | TaskInfo
                 ID = str(task.taskid)
-                start = task.started_at.astimezone(tz).strftime('%H:%M')
+                start = task.started_at.astimezone(tz).strftime("%H:%M")
                 if task.started_at < day:
                     # Technically if seconds and microseconds are 0, this will be off by 1
                     diff = (day - task.started_at).days + 1
                     start = f"(-{diff}) {start}"
                 if task.completed_at:
-                    end = task.completed_at.astimezone(tz).strftime('%H:%M')
+                    end = task.completed_at.astimezone(tz).strftime("%H:%M")
                 else:
-                    end = 'NOW'
+                    end = "NOW"
 
                 period = f"{start} - {end}"
                 # If task is not completed, it will be current, hence be TaskInfo
@@ -476,25 +666,23 @@ class NowDoingCog(LionCog):
                 else:
                     duration = f"{min:02d}:{sec:02d}"
                 if len(task.content) > 100:
-                    content = task.content[:97] + '...'
+                    content = task.content[:97] + "..."
                 else:
                     content = task.content
-                content = content.replace('`', '')
+                content = content.replace("`", "")
 
-                rows.append((
-                    ID, period, duration, content
-                ))
+                rows.append((ID, period, duration, content))
             page_data.append(rows)
 
         # Add the page numbers if needed
-        if (count := len(titles)) > 1 :
+        if (count := len(titles)) > 1:
             for i in range(count):
-                titles[i] += f" (Page {i+1}/{count})"
+                titles[i] += f" (Page {i + 1}/{count})"
 
         # Create the output
-        headers = ('ID', 'Period', 'Duration', 'Task')
-        justify = ('^', '<', '>', '<')
-        justify_head = ('^', '^', '^', '<')
+        headers = ("ID", "Period", "Duration", "Task")
+        justify = ("^", "<", ">", "<")
+        justify_head = ("^", "^", "^", "<")
 
         # TODO: Makes it incompatible with DM
         if not ctx.alion.luser.config.timezone.value:
@@ -514,13 +702,9 @@ class NowDoingCog(LionCog):
             pages.append(page)
 
         if pages:
-            await pager(ctx, pages, add_cancel=True)
+            await pager(ctx, pages)
         else:
-            message = "No tasks completed yet (since we started recording completed tasks)!"
+            message = (
+                "No tasks completed yet (since we started recording completed tasks)!"
+            )
             await ctx.reply(message)
-
-
-
-
-
-
