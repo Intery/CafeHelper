@@ -442,7 +442,6 @@ class NowDoingCog(LionCog):
             elif len(tasks) == 1:
                 task = tasks[0]
                 await tasklist.set_now(task.taskid)
-                await ctx.reply("Updated your current task, good luck!")
                 next_msg = f"Started your next task `{task.format()}`, good luck!"
             else:
                 next_msg = "Could not parse any tasks from the arguments given, no new task started!"
@@ -560,16 +559,16 @@ class NowDoingCog(LionCog):
     @commands.command(
         name="clear",
     )
-    async def twi_clear(self, ctx: commands.Context):
+    async def twi_clear(self, ctx: commands.Context, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
-        await self.clear(ctx, profile)
+        await self.clear(ctx, profile, args)
 
     @cmds.hybrid_command(
         name="clear",
     )
-    async def disc_clear(self, ctx: LionContext):
+    async def disc_clear(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
-        await self.clear(ctx, profile)
+        await self.clear(ctx, profile, args)
 
     async def clear(
         self, ctx: commands.Context | LionContext, profile, args: Optional[str] = None
@@ -579,23 +578,51 @@ class NowDoingCog(LionCog):
         tasklist = await self.tasker.get_tasklist(profileid)
         current = tasklist.get_current()
 
-        if args and args.lower() in ("plan", "planner"):
-            pass
-        if args:
+        keyw = (args or "").lower()
+
+        if keyw in ("plan", "planner"):
+            # Clear the plan
+            await tasklist.set_plan()
+            taskstr = "Fully cleared your plan!"
+        elif keyw in ("all", "tasklist", "tasks", "scratchpad"):
+            # Clear the entire scratchpad/tasklist
+            await tasklist.unset_now()
+            await tasklist.set_plan()
+            await tasklist.delete_tasks(*tasklist.id_tasks.keys())
+            taskstr = "Cleared your entire tasklist!"
+        elif keyw in ("done", "completed"):
+            to_delete = [t.taskid for t in tasklist.id_tasks.values() if t.is_complete]
+            await tasklist.delete_tasks(*to_delete)
+            taskstr = "Removed all your completed tasks!"
+        elif not args or (keyw in ("current", "now")):
+            # Deleting current task
+            if current := tasklist.get_current():
+                await tasklist.delete_tasks(current.taskid)
+                await self.dispatch_update(tasklist, profile)
+                taskstr = "Deleted your current task!"
+            else:
+                taskstr = (
+                    "You don't have a current task set! "
+                    "Show what you are working on with e.g. !now Reading notes"
+                )
+        else:
+            # Removing specific tasks
             try:
                 tasks = await tasklist.parse_taskspec(args, create=False)
             except TasklistParseCreateError:
                 await ctx.reply("You can't create tasks when deleting them!")
-            ...
-        elif current := tasklist.get_current():
-            await tasklist.delete_tasks(current.taskid)
-            await self.dispatch_update(tasklist, profile)
-            await ctx.send("Deleted your current task!")
-        else:
-            await ctx.reply(
-                "You don't have a current task set! "
-                "Show what you are working on with e.g. !now Reading notes"
-            )
+                return
+            if not tasks:
+                taskstr = "No matching tasks to remove!"
+            else:
+                await tasklist.delete_tasks(*(t.taskid for t in tasks))
+                if len(tasks) == 1:
+                    taskstr = "Removed your task from the tasklist! "
+                else:
+                    taskstr = f"Removed {len(tasks)} tasks from your tasklist!"
+
+        await self.dispatch_update(tasklist, profile)
+        await ctx.reply(taskstr)
 
     async def planner(
         self,

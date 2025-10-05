@@ -6,15 +6,14 @@ from utils.lib import utc_now
 from .data import Task, TaskInfo, TaskProfile, TaskData
 
 
-class TasklistParseCreateError(Exception):
-    ...
-
+class TasklistParseCreateError(Exception): ...
 
 
 class Tasklist:
     """
     Represents the tasklist for a single user.
     """
+
     profileid: int
     data: TaskData
     id_tasks: dict[int, TaskInfo]
@@ -22,11 +21,15 @@ class Tasklist:
     current: Optional[int]
     plan: list[int]
 
-    taskspec_re = re.compile(
-        r"^(?P<start>\d+)((\s*(?P<range>-)\s*)(?P<end>\d*))?$"
-    )
+    taskspec_re = re.compile(r"^(?P<start>\d+)((\s*(?P<range>-)\s*)(?P<end>\d*))?$")
 
-    def __init__(self, profileid: int, tasks: list[TaskInfo], data: TaskData, update_callback=None):
+    def __init__(
+        self,
+        profileid: int,
+        tasks: list[TaskInfo],
+        data: TaskData,
+        update_callback=None,
+    ):
         self.profileid = profileid
         self.data = data
         self._set_tasks(tasks)
@@ -55,10 +58,10 @@ class Tasklist:
             return []
 
         rows = await self.data.tasklist.insert_many(
-            ('profileid', 'content', *kwargs.keys()),
-            *((self.profileid, content, *kwargs.values()) for content in contents)
+            ("profileid", "content", *kwargs.keys()),
+            *((self.profileid, content, *kwargs.values()) for content in contents),
         )
-        taskids = [row['taskid'] for row in rows]
+        taskids = [row["taskid"] for row in rows]
         info = await TaskInfo.fetch_where(taskid=taskids)
         await self.on_update()
         # self.id_tasks.update({task.taskid: task for task in info})
@@ -76,7 +79,13 @@ class Tasklist:
         if taskids:
             if self.current in taskids:
                 await self.unset_now()
-            await self.data.tasklist.update_where(taskid=taskids).set(deleted_at=utc_now())
+            planids = set(self.plan).intersection(taskids)
+            if planids:
+                await self.data.taskplan.delete_where(taskids=taskids)
+
+            await self.data.tasklist.update_where(taskid=taskids).set(
+                deleted_at=utc_now()
+            )
             await self.on_update()
 
     def get_plan(self) -> list[TaskInfo]:
@@ -88,11 +97,8 @@ class Tasklist:
         shift = len(taskids)
         plan_data = zip(taskids, range(min_idx - shift, min_idx))
         await self.data.taskplan.delete_where(taskid=taskids)
-        await self.data.taskplan.insert_many(
-            ('taskid', 'order_idx'),
-            *plan_data
-        )
-        # Refreshing here instead of modifying cache 
+        await self.data.taskplan.insert_many(("taskid", "order_idx"), *plan_data)
+        # Refreshing here instead of modifying cache
         # Because the planned flag will be wrong on the saved taskinfo as well
         await self.on_update()
 
@@ -102,10 +108,7 @@ class Tasklist:
         shift = len(taskids)
         plan_data = zip(taskids, range(max_idx + 1, max_idx + shift + 1))
         await self.data.taskplan.delete_where(taskid=taskids)
-        await self.data.taskplan.insert_many(
-            ('taskid', 'order_idx'),
-            *plan_data
-        )
+        await self.data.taskplan.insert_many(("taskid", "order_idx"), *plan_data)
         await self.on_update()
 
     async def set_plan(self, *taskids: int):
@@ -115,7 +118,7 @@ class Tasklist:
             await self.data.taskplan.delete_where(taskid=self.plan)
         if taskids:
             plan_data = zip(taskids, range(len(taskids)))
-            await self.data.taskplan.insert_many(('taskid', 'order_idx'), *plan_data)
+            await self.data.taskplan.insert_many(("taskid", "order_idx"), *plan_data)
         await self.on_update()
 
     def get_current(self) -> Optional[TaskInfo]:
@@ -125,9 +128,13 @@ class Tasklist:
         # Unset current task if it exists
         await self.unset_now()
         task = self.id_tasks[taskid]
-        await self.data.nowlist.insert(taskid=taskid, last_started=None if task.is_complete else utc_now())
+        await self.data.nowlist.insert(
+            taskid=taskid, last_started=None if task.is_complete else utc_now()
+        )
         if task.started_at is None:
-            await self.data.tasklist.update_where(taskid=taskid).set(started_at=utc_now())
+            await self.data.tasklist.update_where(taskid=taskid).set(
+                started_at=utc_now()
+            )
 
         await self.on_update()
 
@@ -141,36 +148,47 @@ class Tasklist:
             now = utc_now()
             if current.last_started is not None:
                 duration = (now - current.last_started).total_seconds()
-                duration += current.duration 
-                await self.data.tasklist.update_where(taskid=current.taskid).set(duration=duration)
+                duration += current.duration
+                await self.data.tasklist.update_where(taskid=current.taskid).set(
+                    duration=duration
+                )
             await self.data.nowlist.delete_where(taskid=current.taskid)
             await self.on_update()
 
-    async def complete_tasks(self, *taskids, communityid: int|None = None) -> list[TaskInfo]:
-        # Remove any tasks which are already complete 
+    async def complete_tasks(
+        self, *taskids, communityid: int | None = None
+    ) -> list[TaskInfo]:
+        # Remove any tasks which are already complete
         # TODO: Transaction
         # TODO: Uncomplete tasks
         taskids = [id for id in taskids if not self.id_tasks[id].is_complete]
         if taskids:
             now = utc_now()
             await self.data.tasklist.update_where(taskid=taskids).set(
-                completed_at=now,
-                completed_in=communityid
+                completed_at=now, completed_in=communityid
             )
             if self.current in taskids:
                 current = self.get_current()
                 assert current is not None
                 assert current.last_started is not None
 
-                duration = (utc_now() - current.last_started).total_seconds() + current.duration 
-                await self.data.tasklist.update_where(taskid=self.current).set(duration=duration)
-                await self.data.nowlist.update_where(taskid=self.current).set(last_started=None)
+                duration = (
+                    utc_now() - current.last_started
+                ).total_seconds() + current.duration
+                await self.data.tasklist.update_where(taskid=self.current).set(
+                    duration=duration
+                )
+                await self.data.nowlist.update_where(taskid=self.current).set(
+                    last_started=None
+                )
             await self.on_update()
 
         # Return tasks which were actually completed
         return [self.id_tasks[taskid] for taskid in taskids]
 
-    async def parse_taskspec(self, taskspec: str, multiple=True, create=True) -> list[TaskInfo]:
+    async def parse_taskspec(
+        self, taskspec: str, multiple=True, create=True
+    ) -> list[TaskInfo]:
         """
         Parse a user provide taskspec string.
         TasklistParseError
@@ -185,13 +203,13 @@ class Tasklist:
         This is inevitable, but important to note.
         """
         # First split the userstring
-        if '\n' in taskspec:
-            splits = taskspec.split('\n')
-        elif ';' in taskspec:
-            splits = taskspec.split(';')
+        if "\n" in taskspec:
+            splits = taskspec.split("\n")
+        elif ";" in taskspec:
+            splits = taskspec.split(";")
         else:
-            splits = taskspec.split(',')
-        splits = [split.strip(',; \n') for split in splits]
+            splits = taskspec.split(",")
+        splits = [split.strip(",; \n") for split in splits]
         splits = [split for split in splits if split]
 
         taskids: list[Optional[int]] = []
@@ -207,9 +225,9 @@ class Tasklist:
             match = self.taskspec_re.match(split)
             if match:
                 # Task looks like a range or numeric
-                start = int(match['start'])
-                ranged = match['range']
-                end = int(match['end'] or maxlabel or -1)
+                start = int(match["start"])
+                ranged = match["range"]
+                end = int(match["end"] or maxlabel or -1)
                 if ranged:
                     labels = list(range(start, end + 1))
                 else:
@@ -224,7 +242,7 @@ class Tasklist:
                         taskids.append(taskid)
                         seen.add(taskid)
             else:
-                # Presume it is a task we need to create 
+                # Presume it is a task we need to create
                 to_create.append((i, split))
                 taskids.append(None)
                 i += 1
@@ -232,7 +250,7 @@ class Tasklist:
                     raise TasklistParseCreateError()
 
         for i, content in to_create:
-            task, = await self.create_tasks(content)
+            (task,) = await self.create_tasks(content)
             taskids[i] = task.taskid
 
         assert all(taskid is not None for taskid in taskids)
