@@ -22,7 +22,7 @@ from meta.sockets import Channel, register_channel
 from utils.lib import pager, paginate_list, strfdelta, utc_now
 from . import logger
 from .data import Task, TaskData, TaskInfo
-from .tasklist import Tasklist, TaskRegistry
+from .tasklist import Tasklist, TaskRegistry, TasklistParseCreateError
 from .lib import codetable
 
 
@@ -426,7 +426,7 @@ class NowDoingCog(LionCog):
                         "You have completed all the tasks on your plan, good job!"
                     )
                 else:
-                    next_msg = f"Started your next task `{task.format()}`, good luck!"
+                    next_msg = f"Started your next task `{new_current.format()}`, good luck!"
 
             if new_current:
                 await tasklist.set_now(new_current.taskid)
@@ -569,13 +569,20 @@ class NowDoingCog(LionCog):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.clear(ctx, profile)
 
-    async def clear(self, ctx: commands.Context | LionContext, profile):
+    async def clear(self, ctx: commands.Context | LionContext, profile, args: Optional[str] = None):
         profileid = profile.profileid
 
         tasklist = await self.tasker.get_tasklist(profileid)
         current = tasklist.get_current()
 
-        if current:
+        if args.lower() in ('plan', 'planner')
+        if args:
+            try:
+                tasks = await tasklist.parse_taskspec(args, create=False)
+            except TasklistParseCreateError:
+                await ctx.reply("You can't create tasks when deleting them!")
+            ...
+        elif current := tasklist.get_current():
             await tasklist.delete_tasks(current.taskid)
             await self.dispatch_update(tasklist, profile)
             await ctx.send("Deleted your current task!")
