@@ -544,16 +544,16 @@ class NowDoingCog(LionCog):
     @commands.command(
         name="done",
     )
-    async def twi_done(self, ctx: commands.Context):
+    async def twi_done(self, ctx: commands.Context, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
-        await self.done(ctx, profile)
+        await self.done(ctx, profile, args)
 
     @cmds.hybrid_command(
         name="done",
     )
-    async def disc_done(self, ctx: LionContext):
+    async def disc_done(self, ctx: LionContext, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
-        await self.done(ctx, profile)
+        await self.done(ctx, profile, args)
 
     @commands.command(
         name="clear",
