@@ -426,21 +426,31 @@ class NowDoingCog(LionCog):
                         "You have completed all the tasks on your plan, good job!"
                     )
                 else:
-                    next_msg = f"Started your next task '#{new_current.tasklabel}: {new_current.content}', good luck!"
-        else:
-            (new_current,) = await tasklist.create_tasks(args)
-            next_msg = (
-                f"Good luck with '#{new_current.tasklabel}: {new_current.content}'!"
-            )
+                    next_msg = f"Started your next task `{task.format()}`, good luck!"
 
-        if new_current:
-            await tasklist.set_now(new_current.taskid)
+            if new_current:
+                await tasklist.set_now(new_current.taskid)
+        else:
+            tasks = await tasklist.parse_taskspec(args)
+            if len(tasks) > 1:
+                task = tasks[0]
+                await tasklist.push_plan_head(*(task.taskid for task in tasks))
+                await tasklist.set_now(task.taskid)
+                next_msg = f"Started `{task.format()}` and added {len(tasks) - 1} more to your !plan. Good luck! "
+            elif len(tasks) == 1:
+                task = tasks[0]
+                await tasklist.set_now(task.taskid)
+                await ctx.reply("Updated your current task, good luck!")
+                next_msg = f"Started your next task `{task.format()}`, good luck!"
+            else:
+                next_msg = "Could not parse any tasks from the arguments given, no new task started!"
+
         await self.dispatch_update(tasklist, profile)
 
         if current:
             started_ago = strfdelta(timedelta(seconds=current.total_duration))
             await ctx.reply(
-                f"Good work finishing '{current.content}', "
+                f"Good work finishing `{current.content}`, "
                 f"you worked on it for {started_ago}. " + next_msg
             )
         else:
@@ -460,18 +470,23 @@ class NowDoingCog(LionCog):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.nownext(ctx, profile, args)
 
-    async def done(self, ctx: commands.Context | LionContext, profile: UserProfile):
-        args = None
-
-        # TODO: We can actually create the task here if it's not done.
-
+    async def done(
+        self,
+        ctx: commands.Context | LionContext,
+        profile: UserProfile,
+        args: str | None = None,
+    ):
         tasklist = await self.tasker.get_tasklist(profile.profileid)
         current = tasklist.get_current()
 
         if args:
+            # TODO: Need a better way of detecting creation
+            current_tasks = set(tasklist.id_tasks.keys())
             tasks = await tasklist.parse_taskspec(args)
+            creation = not current_tasks.issuperset((task.taskid for task in tasks))
         else:
             tasks = [current] if current else []
+            creation = False
 
         if tasks:
             # Complete the tasks
@@ -485,22 +500,37 @@ class NowDoingCog(LionCog):
                     await ctx.reply("You already finished these tasks!")
                 else:
                     task = tasks[0]
-                    await ctx.reply(f"You already finished '{task.content}'")
+                    await ctx.reply(f"You already finished `{task.content}`!")
             else:
                 # Note that duration for completed tasks will always be correct
                 duration = int(sum(task.duration for task in completed))
                 durstr = strfdelta(timedelta(seconds=duration))
                 if len(completed) == 1:
                     task = completed[0]
-                    taskstr = f"Good work finishing '{task.content}'"
-                    if duration > 60:
-                        taskstr += f" You worked on it for {durstr}"
-                        # TIP: Next task if plan
-                        # Summary of remaining and done
+                    if creation:
+                        taskstr = f"Created and finished `{task.content}`, good work!"
+                    else:
+                        taskstr = f"Good work finishing `{task.content}`!"
+                        if duration > 60:
+                            taskstr += f" You worked on it for {durstr}."
                 else:
                     taskstr = f"{len(completed)} more tasks completed, great work!"
                     if duration > 60:
-                        taskstr += f" You worked on them for {durstr}"
+                        taskstr += f" You worked on them for {durstr}."
+
+                plan = tasklist.get_plan()
+                if plan:
+                    if todo := next((t for t in plan if not t.is_complete), None):
+                        # Plan has a next task available
+                        taskstr += f" Use `!next` to start your next planned task `{todo.format()}`"
+                    elif not {t.taskid for t in completed}.isdisjoint(
+                        t.taskid for t in plan
+                    ):
+                        # At least one of the completed tasks was on the plan
+                        # And the plan is finished
+                        taskstr += (
+                            " You have completed all your planned tasks, good job!"
+                        )
                 await self.dispatch_update(tasklist, profile)
                 await ctx.reply(taskstr)
         elif args:
