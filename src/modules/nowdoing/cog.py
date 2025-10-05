@@ -319,16 +319,12 @@ class NowDoingCog(LionCog):
                     f"Started your sidequest `{new_current.content}`, good luck!"
                 )
 
-    @commands.command(
-        name="sidequest",
-    )
+    @commands.command(name="sidequest", aliases=["switch"])
     async def twi_sidequest(self, ctx: commands.Context, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
         await self.sidequest(ctx, profile, args)
 
-    @cmds.hybrid_command(
-        name="sidequest",
-    )
+    @cmds.hybrid_command(name="sidequest", aliases=["switch"])
     async def disc_sidequest(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.sidequest(ctx, profile, args)
@@ -556,16 +552,12 @@ class NowDoingCog(LionCog):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.done(ctx, profile, args)
 
-    @commands.command(
-        name="clear",
-    )
+    @commands.command(name="clear", aliases=["remove", "delete", "del"])
     async def twi_clear(self, ctx: commands.Context, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
         await self.clear(ctx, profile, args)
 
-    @cmds.hybrid_command(
-        name="clear",
-    )
+    @cmds.hybrid_command(name="clear", aliases=["remove", "delete", "del"])
     async def disc_clear(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.clear(ctx, profile, args)
