@@ -81,7 +81,7 @@ class Tasklist:
                 await self.unset_now()
             planids = set(self.plan).intersection(taskids)
             if planids:
-                await self.data.taskplan.delete_where(taskids=taskids)
+                await self.data.taskplan.delete_where(taskid=taskids)
 
             await self.data.tasklist.update_where(taskid=taskids).set(
                 deleted_at=utc_now()
