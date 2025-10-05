@@ -163,7 +163,7 @@ class NowDoingCog(LionCog):
         if source_task:
             if target_task and (
                 target_task.is_complete
-                or target_task.started_at < source_task.started_at
+                or target_task.created_at < source_task.created_at
             ):
                 # If target is done, remove it so we can overwrite
                 results.append("Unset older running task from target tasklist.")
@@ -551,7 +551,7 @@ class NowDoingCog(LionCog):
     @cmds.hybrid_command(
         name="done",
     )
-    async def disc_done(self, ctx: LionContext, args: Optional[str] = None):
+    async def disc_done(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.done(ctx, profile, args)
 
@@ -721,13 +721,18 @@ class NowDoingCog(LionCog):
             )
 
             rows = []
-            for task in sorted(bin, key=lambda task: task.started_at or today):
+            for task in sorted(
+                bin, key=lambda task: task.started_at or task.completed_at or today
+            ):
                 task: Task | TaskInfo
                 ID = str(task.taskid)
-                start = task.started_at.astimezone(tz).strftime("%H:%M")
-                if task.started_at < day:
+                # Some completed tasks may never have been started
+                # Treat these as starting at completed_at, or if not completed, today.
+                started_at = task.started_at or task.completed_at or today
+                start = started_at.astimezone(tz).strftime("%H:%M")
+                if started_at < day:
                     # Technically if seconds and microseconds are 0, this will be off by 1
-                    diff = (day - task.started_at).days + 1
+                    diff = (day - started_at).days + 1
                     start = f"(-{diff}) {start}"
                 if task.completed_at:
                     end = task.completed_at.astimezone(tz).strftime("%H:%M")
