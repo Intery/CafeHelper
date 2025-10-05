@@ -426,7 +426,9 @@ class NowDoingCog(LionCog):
                         "You have completed all the tasks on your plan, good job!"
                     )
                 else:
-                    next_msg = f"Started your next task `{new_current.format()}`, good luck!"
+                    next_msg = (
+                        f"Started your next task `{new_current.format()}`, good luck!"
+                    )
 
             if new_current:
                 await tasklist.set_now(new_current.taskid)
@@ -569,13 +571,16 @@ class NowDoingCog(LionCog):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.clear(ctx, profile)
 
-    async def clear(self, ctx: commands.Context | LionContext, profile, args: Optional[str] = None):
+    async def clear(
+        self, ctx: commands.Context | LionContext, profile, args: Optional[str] = None
+    ):
         profileid = profile.profileid
 
         tasklist = await self.tasker.get_tasklist(profileid)
         current = tasklist.get_current()
 
-        if args.lower() in ('plan', 'planner')
+        if args and args.lower() in ("plan", "planner"):
+            pass
         if args:
             try:
                 tasks = await tasklist.parse_taskspec(args, create=False)
