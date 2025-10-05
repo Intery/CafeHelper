@@ -563,6 +563,9 @@ class NowDoingCog(LionCog):
     ):
         profileid = profile.profileid
         tasklist = await self.tasker.get_tasklist(profileid)
+        current = tasklist.get_current()
+
+        indisc = isinstance(ctx, LionContext)
 
         # TODO: Initial version will just have a basic list.
         if args:
@@ -578,13 +581,48 @@ class NowDoingCog(LionCog):
                     f"Added `#{task.tasklabel}: {task.content}` to your plan."
                 )
             else:
-                await ctx.reply(f"Added {len(tasks)} to your plan! Good luck!")
+                await ctx.reply(f"Added {len(tasks)} tasks to your plan, best of luck!")
         elif plan := tasklist.get_plan():
-            parts = []
-            for task in plan:
-                parts.append(f"#{task.tasklabel}: {task.content}")
-            joined = "; ".join(parts)
-            await ctx.reply("Your plan is: \n" + joined)
+            todo = [task for task in plan if not task.is_complete]
+            if todo:
+                parts = []
+                length = 0
+                maxlen = 900 if indisc else 400
+                for i, task in enumerate(todo):
+                    part = task.format()
+                    if indisc and current and task.taskid == current.taskid:
+                        part = f"**{part}**"
+                    if length + len(part) + 3 > maxlen:
+                        parts.append(f"... {len(todo) - i} tasks elided")
+                        break
+                    else:
+                        parts.append(part)
+                        i += 1
+                        length += len(part) + 3
+
+                todostr = " ┆ ".join(parts)
+            else:
+                todostr = ""
+
+            if len(todo) == 0:
+                message = "You have completed all of your planned tasks, good job!"
+            elif len(todo) == 1:
+                if current and todo[0].taskid == current.taskid:
+                    message = (
+                        "You have one planned task remaining "
+                        f"(which is also your current task): `{todo[0].format()}`"
+                    )
+                else:
+                    message = (
+                        f"You have one planned task remaining : `{todo[0].format()}`"
+                    )
+            elif len(todo) == len(plan):
+                message = (
+                    f"You have {len(todo)} tasks on the plan, good luck: {todostr}"
+                )
+            else:
+                message = f"{len(todo)} tasks remaining out of {len(plan)}, you can do it: {todostr}"
+            await ctx.reply(message)
         else:
             await ctx.reply(
                 "You don't have any tasks on your plan! "

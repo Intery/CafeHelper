@@ -1,7 +1,7 @@
 import datetime as dt
 
 from data import Registry, RowModel, Table
-from data.columns import String, Timestamp, Integer, Bool 
+from data.columns import String, Timestamp, Integer, Bool
 
 
 class Task(RowModel):
@@ -9,7 +9,8 @@ class Task(RowModel):
     Schema
     ------
     """
-    _tablename_ = 'taskslist'
+
+    _tablename_ = "taskslist"
     _cache_ = {}
 
     taskid = Integer(primary=True)
@@ -29,7 +30,8 @@ class TaskProfile(RowModel):
     Schema
     ------
     """
-    _tablename_ = 'task_profiles'
+
+    _tablename_ = "task_profiles"
     _cache_ = {}
 
     profileid = Integer(primary=True)
@@ -38,7 +40,7 @@ class TaskProfile(RowModel):
 
 
 class TaskInfo(RowModel):
-    _tablename_ = 'taskslist_info'
+    _tablename_ = "taskslist_info"
 
     taskid = Integer(primary=True)
     profileid = Integer()
@@ -67,12 +69,18 @@ class TaskInfo(RowModel):
             dur += (dt.datetime.now(tz=dt.UTC) - self.last_started).total_seconds()
         return int(dur)
 
+    def format(self, length=40):
+        if len(self.content) > length:
+            content = self.content[: length - 3] + "..."
+        else:
+            content = self.content
+        return f"#{self.tasklabel}: {content}"
 
 
 class TaskData(Registry):
-    tasklist = Task.table 
+    tasklist = Task.table
     task_profiles = TaskProfile.table
     tasklist_info = TaskInfo.table
 
-    nowlist = Table('nowlist')
-    taskplan = Table('taskplan')
+    nowlist = Table("nowlist")
+    taskplan = Table("taskplan")
