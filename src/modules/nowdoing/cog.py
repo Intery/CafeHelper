@@ -707,6 +707,50 @@ class NowDoingCog(LionCog):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.planner(ctx, profile, args)
 
+    async def unplanner(
+        self,
+        ctx: LionContext | commands.Context,
+        profile: UserProfile,
+        args: Optional[str] = None,
+    ):
+        """
+        Remove specified tasks from the plan, or clear the plan.
+        """
+        tasklist = await self.tasker.get_tasklist(profile.profileid)
+
+        if args:
+            try:
+                tasks = await tasklist.parse_taskspec(args, create=False)
+            except TasklistParseCreateError:
+                await ctx.reply("You can't create tasks when unplanning them!")
+                return
+            if not tasks:
+                await ctx.reply("Sorry, this doesn't match any tasks on your tasklist!")
+                # TODO: Show usage here.
+                return
+
+            plan = tasklist.get_plan()
+            new_planids = [t.taskid for t in plan if t not in tasks]
+            if len(new_planids) == len(plan):
+                await ctx.reply("None of these tasks are in your plan!")
+            else:
+                await tasklist.set_plan(*new_planids)
+                await ctx.reply("Updated your plan!")
+        else:
+            # Wipe the plan
+            await tasklist.set_plan()
+            await ctx.reply("Removed all tasks from your plan")
+
+    @commands.command(name="unplan")
+    async def twi_unplan(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
+        await self.unplanner(ctx, profile, args)
+
+    @cmds.hybrid_command(name="unplan")
+    async def disc_unplan(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
+        await self.unplanner(ctx, profile, args)
+
     @cmds.hybrid_command(name="history", aliases=["hist", "taskhist"])
     async def disc_hist(self, ctx: LionContext):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
