@@ -294,11 +294,11 @@ class NowDoingCog(LionCog):
             # Sidequest tasks only go on the plan if we have multiple tasks
             # Kinda same logic as !now
             await tasklist.push_plan_head(*(task.taskid for task in tasks))
-            if current:
+            if current and not current.is_complete:
                 await ctx.reply(
                     f"Started your sidequest `{new_current.content}`, "
                     f"and pushed {len(tasks)} more tasks onto your !plan, "
-                    f"including your main quest `#{current.tasklabel}: {current.content}`. "
+                    f"including your main quest `{current.format(length=100)}`. "
                     f"Good luck!"
                 )
             else:
@@ -308,11 +308,11 @@ class NowDoingCog(LionCog):
                     f"Good luck!"
                 )
         else:
-            if current:
+            if current and not current.is_complete:
                 await ctx.reply(
                     f"Started your sidequest `{new_current.content}`, good luck!\n "
                     "When you are done use `!next` to resume your main quest "
-                    f"`#{current.tasklabel}: {current.content}`."
+                    f"`{current.format(length=100)}`."
                 )
             else:
                 await ctx.reply(
