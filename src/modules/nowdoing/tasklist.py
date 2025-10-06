@@ -235,12 +235,13 @@ class Tasklist:
                 for label in labels:
                     if label in self.label_ids:
                         taskid = self.label_ids[label]
+                        if taskid not in seen:
+                            i += 1
+                            taskids.append(taskid)
+                            seen.add(taskid)
                     else:
-                        raise ValueError(f"Unknown task label {label}")
-                    if taskid not in seen:
-                        i += 1
-                        taskids.append(taskid)
-                        seen.add(taskid)
+                        # We choose to ignore tasklabels provided which don't exist
+                        pass
             else:
                 # Presume it is a task we need to create
                 to_create.append((i, split))
