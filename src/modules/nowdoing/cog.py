@@ -488,6 +488,13 @@ class NowDoingCog(LionCog):
         if tasks:
             # Complete the tasks
             completed = await tasklist.complete_tasks(*[task.taskid for task in tasks])
+            already = len(tasks) - len(completed)
+            if already > 1:
+                alreadystr = f" ({already} were already complete!)"
+            elif already == 1:
+                alreadystr = " (1 was already complete!)"
+            else:
+                alreadystr = ""
 
             # Response depends on how many tasks were complete
             # Don't show if duration is less than 30 seconds
@@ -511,7 +518,7 @@ class NowDoingCog(LionCog):
                         if duration > 60:
                             taskstr += f" You worked on it for {durstr}."
                 else:
-                    taskstr = f"{len(completed)} more tasks completed, great work!"
+                    taskstr = f"{len(completed)} more tasks completed{alreadystr}, great work!"
                     if duration > 60:
                         taskstr += f" You worked on them for {durstr}."
 
