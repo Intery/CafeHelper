@@ -274,7 +274,7 @@ class NowDoingCog(LionCog):
                     todo = remaining[0]
                     await ctx.reply(
                         "You don't have a current task set!"
-                        " Use `!next` to start your next task `{todo.format()}`"
+                        f" Use `!next` to start your next task `{todo.format()}`"
                         " or show what you are working on now with e.g. `!now Reading notes`"
                     )
                 else:
@@ -648,11 +648,10 @@ class NowDoingCog(LionCog):
             await tasklist.delete_tasks(*to_delete)
             taskstr = "Removed all your completed tasks!"
         elif not args or (keyw in ("current", "now")):
-            # Deleting current task
             if current := tasklist.get_current():
-                await tasklist.delete_tasks(current.taskid)
+                await tasklist.unset_now()
                 await self.dispatch_update(tasklist, profile)
-                taskstr = "Deleted your current task!"
+                taskstr = "Unset your current task!"
             else:
                 taskstr = (
                     "You don't have a current task set! "
