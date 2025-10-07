@@ -201,6 +201,7 @@ class NowDoingCog(LionCog):
 
         tasklist = await self.tasker.get_tasklist(profileid)
         current = tasklist.get_current()
+        plan = tasklist.get_plan()
 
         if args:
             tasks = await tasklist.parse_taskspec(args)
@@ -223,17 +224,70 @@ class NowDoingCog(LionCog):
         elif current:
             if current.is_complete:
                 done_ago = strfdelta(utc_now() - current.completed_at)
-                await ctx.reply(f"You finished '{current.content}' {done_ago} ago!")
+                taskstr = f"You finished '{current.content}' {done_ago} ago"
+
+                if plan:
+                    completed = [t for t in plan if t.is_complete]
+                    remaining = len(plan) - len(completed)
+                    if remaining > 0:
+                        todo = next(t for t in plan if not t.is_complete)
+                        if remaining > 1:
+                            planstr = (
+                                f"You have {remaining}/{len(plan)} tasks left"
+                                f" on your !plan, use `!next` to start `{todo.format()}`"
+                                " when you're ready."
+                            )
+                        else:
+                            planstr = (
+                                f"Your last planned task is `{todo.format()}`, "
+                                f"use `!next` to start it when you're ready!"
+                            )
+                        await ctx.reply(f"{taskstr}! {planstr}")
+                    else:
+                        await ctx.reply(
+                            f"{taskstr}, and you have completed all tasks on your plan, good job!"
+                        )
+                else:
+                    await ctx.reply(f"{taskstr}!")
             else:
                 started_ago = strfdelta(timedelta(seconds=current.total_duration))
-                await ctx.reply(
+                taskstr = (
                     f"You have been working on '{current.content}' for {started_ago}"
                 )
+                remaining = [t for t in plan if not t.is_complete]
+                if len(remaining) > 1:
+                    planstr = f"and you have {len(remaining)} tasks left on your plan!"
+                    await ctx.reply(f"{taskstr}, {planstr}")
+                elif not remaining:
+                    await ctx.reply(f"{taskstr}!")
+                elif remaining[0] == current:
+                    planstr = "this your last planned task!"
+                    await ctx.reply(f"{taskstr}, {planstr}")
+                else:
+                    # One remaining but not current task.
+                    planstr = "and you have one more task left on your plan!"
+                    await ctx.reply(f"{taskstr}, {planstr}")
         else:
-            await ctx.reply(
-                "You don't have a current task set! "
-                "Show what you are working on with e.g. !now Reading notes"
-            )
+            remaining = [t for t in plan if not t.is_complete]
+            if plan:
+                if remaining:
+                    todo = remaining[0]
+                    await ctx.reply(
+                        "You don't have a current task set!"
+                        " Use `!next` to start your next task `{todo.format()}`"
+                        " or show what you are working on now with e.g. `!now Reading notes`"
+                    )
+                else:
+                    await ctx.reply(
+                        "You don't have a current task set,"
+                        " and you have finished all your planned tasks!"
+                        " Show what you are working on with e.g. `!now Reading notes`"
+                    )
+            else:
+                await ctx.reply(
+                    "You don't have a current task set! "
+                    "Show what you are working on with e.g. !now Reading notes"
+                )
 
     async def notnow(self, ctx: commands.Context | LionContext, profile: UserProfile):
         profileid = profile.profileid
@@ -244,7 +298,7 @@ class NowDoingCog(LionCog):
             await tasklist.unset_now()
             if current.is_complete:
                 await self.dispatch_update(tasklist, profile)
-                await ctx.reply(f"Unset your completed task!")
+                await ctx.reply("Unset your completed task!")
             else:
                 await tasklist.push_plan_head(current.taskid)
                 await self.dispatch_update(tasklist, profile)
