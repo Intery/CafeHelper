@@ -200,7 +200,7 @@ class Tasklist:
         if restartids:
             if currentid in restartids:
                 await self.unset_now()
-            await self.data.tasklist.update_where(taskid=restartids).set(
+            await self.data.tasklist.update_where(taskid=list(restartids)).set(
                 duration=0,
                 started_at=None,
             )
