@@ -186,6 +186,29 @@ class Tasklist:
         # Return tasks which were actually completed
         return [self.id_tasks[taskid] for taskid in taskids]
 
+    async def restart_tasks(self, *taskids: int):
+        """
+        Restart the given tasks.
+
+        Restarting means clearing the duration and started_at fields.
+        If the task is currently active, then it will be restarted from now.
+
+        Does not do anything to completed tasks.
+        """
+        restartids = {id for id in taskids if not self.id_tasks[id].is_complete}
+        currentid = self.current
+        if restartids:
+            if currentid in restartids:
+                await self.unset_now()
+            await self.data.tasklist.update_where(taskid=restartids).set(
+                duration=0,
+                started_at=None,
+            )
+            if currentid in restartids:
+                await self.set_now(currentid)
+            else:
+                await self.on_update()
+
     async def parse_taskspec(
         self, taskspec: str, multiple=True, create=True
     ) -> list[TaskInfo]:

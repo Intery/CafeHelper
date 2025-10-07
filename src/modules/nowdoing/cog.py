@@ -623,6 +623,42 @@ class NowDoingCog(LionCog):
         await self.dispatch_update(tasklist, profile)
         await ctx.reply(taskstr)
 
+    async def restart(
+        self,
+        ctx: LionContext | commands.Context,
+        profile: UserProfile,
+        args: Optional[str] = None,
+    ):
+        """
+        Restart your current task.
+
+        May accept a taskspec in the future.
+        """
+        tasklist = await self.tasker.get_tasklist(profile.profileid)
+        current = tasklist.get_current()
+
+        if current is None:
+            await ctx.reply("You don't have a current task set to restart!")
+        elif current.is_complete:
+            await ctx.reply(
+                f"Your current task `{current.format()}` is already complete!"
+            )
+        else:
+            # We have an incomplete current task.
+            await tasklist.restart_tasks(current.taskid)
+            await self.dispatch_update(tasklist, profile)
+            await ctx.reply("Restarted your current task, good luck!")
+
+    @commands.command(name="restart")
+    async def twi_restart(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
+        await self.restart(ctx, profile, args)
+
+    @cmds.hybrid_command(name="restart")
+    async def disc_restart(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
+        await self.restart(ctx, profile, args)
+
     async def planner(
         self,
         ctx: LionContext | commands.Context,
