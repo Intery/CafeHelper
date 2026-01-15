@@ -157,7 +157,7 @@ class NowDoingCog(LionCog):
 
         results.append(f"Migrated {len(rows)} tasks from source tasklist.")
 
-        await target_tasklist.set_plan(*new_plan)
+        await target_tasklist.set_plan(*list(set(new_plan)))
         # TODO: Something with profile settings
 
         if source_task:
