@@ -157,6 +157,14 @@ class NowDoingCog(LionCog):
 
         results.append(f"Migrated {len(rows)} tasks from source tasklist.")
 
+        # Ensure the plans are fully wiped
+        rows = await self.data.tasklist.fetch_rows_where(
+            profileid=target_profile.profileid
+        )
+        taskids = [row.taskid for row in rows]
+        if taskids:
+            await self.data.taskplan.delete_where(taskid=taskids)
+
         await target_tasklist.set_plan(*list(set(new_plan)))
         # TODO: Something with profile settings
 
