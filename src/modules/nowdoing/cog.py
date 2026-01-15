@@ -415,23 +415,40 @@ class NowDoingCog(LionCog):
         args: Optional[str] = None,
     ):
         args = args.strip() if args else None
+
+        if not args:
+            usage_str = "USAGE: '!edit <new task content>' to update your current task, or '!edit <n> <new task content>' to update task n!"
+            await ctx.reply(usage_str)
+            return
+
         profileid = profile.profileid
-
         tasklist = await self.tasker.get_tasklist(profileid)
-        current = tasklist.get_current()
 
-        if current:
-            # Edit with new args
-            await tasklist.edit_task(current.taskid, args)
-            await self.dispatch_update(tasklist, profile)
-            await ctx.reply("Updated your current task!")
+        if (word := args.split(maxsplit=1)[0].strip()).isdigit():
+            info = await tasklist.parse_taskspec(word)
+
+            if info:
+                taskid = info[0].taskid
+                new_content = args[len(word) :].strip()
+                await tasklist.edit_task(taskid, new_content)
+                await ctx.reply("Updated your task!")
+                await self.dispatch_update(tasklist, profile)
+            else:
+                await ctx.reply(f"You don't have a task #{word} to update!")
         else:
-            # Error with nothing to edit
-            # Will change for v1
-            await ctx.reply(
-                "You don't have a current task to edit! "
-                "Show what you are working on with e.g. !now Reading notes"
-            )
+            current = tasklist.get_current()
+
+            if current:
+                # Edit with new args
+                await tasklist.edit_task(current.taskid, args)
+                await ctx.reply("Updated your current task, good luck!")
+                await self.dispatch_update(tasklist, profile)
+            else:
+                # Error with nothing to edit
+                await ctx.reply(
+                    "You don't have a current task to edit! "
+                    "Show what you are working on with e.g. !now Reading notes"
+                )
 
     @commands.command(
         name="edit",
