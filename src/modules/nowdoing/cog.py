@@ -603,7 +603,12 @@ class NowDoingCog(LionCog):
 
                 plan = tasklist.get_plan()
                 if plan:
-                    if todo := next((t for t in plan if not t.is_complete), None):
+                    # If we just completed the current task, and there's a next task to do
+                    if (
+                        current
+                        and current.taskid in {t.taskid for t in completed}
+                        and (todo := next((t for t in plan if not t.is_complete), None))
+                    ):
                         # Plan has a next task available
                         taskstr += f" Use `!next` to start your next planned task `{todo.format()}`"
                     elif not {t.taskid for t in completed}.isdisjoint(
