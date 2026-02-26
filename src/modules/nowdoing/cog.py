@@ -611,9 +611,9 @@ class NowDoingCog(LionCog):
                     ):
                         # Plan has a next task available
                         taskstr += f" Use `!next` to start your next planned task `{todo.format()}`"
-                    elif not {t.taskid for t in completed}.isdisjoint(
-                        t.taskid for t in plan
-                    ):
+                    elif all(t.is_complete for t in plan) and not {
+                        t.taskid for t in completed
+                    }.isdisjoint(t.taskid for t in plan):
                         # At least one of the completed tasks was on the plan
                         # And the plan is finished
                         taskstr += (
