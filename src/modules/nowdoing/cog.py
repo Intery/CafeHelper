@@ -768,6 +768,7 @@ class NowDoingCog(LionCog):
                     f"Added `#{task.tasklabel}: {task.content}` to your plan."
                 )
             else:
+                # TODO: Prompt for next task if no current task
                 await ctx.reply(f"Added {len(tasks)} tasks to your plan, best of luck!")
         elif plan := tasklist.get_plan():
             todo = [task for task in plan if not task.is_complete]
@@ -811,6 +812,7 @@ class NowDoingCog(LionCog):
                 message = f"{len(todo)} tasks remaining out of {len(plan)}, you can do it: {todostr}"
             await ctx.reply(message)
         else:
+            # TODO: If current task set, show that instead of prompting !now
             await ctx.reply(
                 "You don't have any tasks on your plan! "
                 "Use !now to show what you are working on, e.g. `!now Reading` or `!now Reading; Writing`"
@@ -917,9 +919,6 @@ class NowDoingCog(LionCog):
                 # Exclude any empty bins
                 continue
             day = daymap[daydiff]
-            titles.append(
-                "Tasksheet for " + day.strftime("%A, %d %b %Y") + f" ({str(tz)})"
-            )
 
             rows = []
             for task in sorted(
@@ -949,14 +948,30 @@ class NowDoingCog(LionCog):
                     duration = f"{hours:02d}:{min:02d}:{sec:02d}"
                 else:
                     duration = f"{min:02d}:{sec:02d}"
-                if len(task.content) > 100:
-                    content = task.content[:97] + "..."
+                if len(task.content) > 50:
+                    content = task.content[:47] + "..."
                 else:
                     content = task.content
-                content = content.replace("`", "")
+                content = content.replace("```", "")
 
                 rows.append((ID, period, duration, content))
-            page_data.append(rows)
+
+            blocklen = 16
+
+            if len(rows) > blocklen:
+                rowblocks = [rows[i : i+blocklen] for i in range(0, len(rows), blocklen)]
+                for i, block in enumerate(rowblocks):
+                    titles.append(
+                        "Tasksheet for " + day.strftime("%A, %d %b %Y")
+                            + f" ({str(tz)}) " + f" (Part {i+1}/{len(rowblocks)})"
+                    )
+                    page_data.append(block)
+
+            else:
+                titles.append(
+                    "Tasksheet for " + day.strftime("%A, %d %b %Y") + f" ({str(tz)})"
+                )
+                page_data.append(rows)
 
         # Add the page numbers if needed
         if (count := len(titles)) > 1:

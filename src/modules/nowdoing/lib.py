@@ -66,7 +66,7 @@ def codetable(
     formatted.append(' | '.join(fstr.format(col=col) for fstr, col in zip(format_head, headers)))
 
     for row in data:
-        middle = ' | '.join(fstr.format(col=col) for fstr, col in zip(format_parts, row))
+        middle = ' | '.join(fstr.format(col=col) for fstr, col in zip(format_parts, row)).rstrip()
         formatted.append(middle)
     rowlen = len(formatted[0])
 
