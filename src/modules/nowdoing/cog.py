@@ -747,6 +747,7 @@ class NowDoingCog(LionCog):
         ctx: LionContext | commands.Context,
         profile: UserProfile,
         args: Optional[str] = None,
+        head: bool = False,
     ):
         profileid = profile.profileid
         tasklist = await self.tasker.get_tasklist(profileid)
@@ -760,16 +761,29 @@ class NowDoingCog(LionCog):
             if not tasks:
                 await ctx.reply("Provided taskspec did not match any tasks!")
                 return
-            await tasklist.push_plan_tail(*(task.taskid for task in tasks))
+            pusher = tasklist.push_plan_head if head else tasklist.push_plan_tail
+            await pusher(*(task.taskid for task in tasks))
 
             if len(tasks) == 1:
                 task = tasks[0]
-                await ctx.reply(
-                    f"Added `#{task.tasklabel}: {task.content}` to your plan."
-                )
+                if head:
+                    await ctx.reply(
+                        f"Added `#{task.tasklabel}: {task.content}` as your next task."
+                    )
+                else:
+                    await ctx.reply(
+                        f"Added `#{task.tasklabel}: {task.content}` to your plan."
+                    )
             else:
                 # TODO: Prompt for next task if no current task
-                await ctx.reply(f"Added {len(tasks)} tasks to your plan, best of luck!")
+                if head:
+                    await ctx.reply(
+                        f"Added {len(tasks)} tasks to the head of your plan, best of luck!"
+                    )
+                else:
+                    await ctx.reply(
+                        f"Added {len(tasks)} tasks to your plan, best of luck!"
+                    )
         elif plan := tasklist.get_plan():
             todo = [task for task in plan if not task.is_complete]
             if todo:
@@ -818,15 +832,15 @@ class NowDoingCog(LionCog):
                 "Use !now to show what you are working on, e.g. `!now Reading` or `!now Reading; Writing`"
             )
 
-    @commands.command(name="plan", aliases=["later", "add"])
+    @commands.command(name="plan", aliases=["later", "add", "soon"])
     async def twi_plan(self, ctx: commands.Context, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
-        await self.planner(ctx, profile, args)
+        await self.planner(ctx, profile, args, head=(ctx.invoked_with == "soon"))
 
-    @cmds.hybrid_command(name="plan", aliases=["later", "add"])
+    @cmds.hybrid_command(name="plan", aliases=["later", "add", "soon"])
     async def disc_plan(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
-        await self.planner(ctx, profile, args)
+        await self.planner(ctx, profile, args, head=(ctx.invoked_with == "soon"))
 
     async def unplanner(
         self,
@@ -959,11 +973,15 @@ class NowDoingCog(LionCog):
             blocklen = 16
 
             if len(rows) > blocklen:
-                rowblocks = [rows[i : i+blocklen] for i in range(0, len(rows), blocklen)]
+                rowblocks = [
+                    rows[i : i + blocklen] for i in range(0, len(rows), blocklen)
+                ]
                 for i, block in enumerate(rowblocks):
                     titles.append(
-                        "Tasksheet for " + day.strftime("%A, %d %b %Y")
-                            + f" ({str(tz)}) " + f" (Part {i+1}/{len(rowblocks)})"
+                        "Tasksheet for "
+                        + day.strftime("%A, %d %b %Y")
+                        + f" ({str(tz)}) "
+                        + f" (Part {i + 1}/{len(rowblocks)})"
                     )
                     page_data.append(block)
 
