@@ -832,10 +832,15 @@ class NowDoingCog(LionCog):
                 "Use !now to show what you are working on, e.g. `!now Reading` or `!now Reading; Writing`"
             )
 
-    @commands.command(name="plan", aliases=["later", "add", "soon"])
+    @commands.command(name="plan", aliases=["later", "add"])
     async def twi_plan(self, ctx: commands.Context, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
-        await self.planner(ctx, profile, args, head=(ctx.invoked_with == "soon"))
+        await self.planner(ctx, profile, args, head=False)
+
+    @commands.command(name="soon")
+    async def twi_soon(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
+        await self.planner(ctx, profile, args, head=True)
 
     @cmds.hybrid_command(name="plan", aliases=["later", "add", "soon"])
     async def disc_plan(self, ctx: LionContext, *, args: Optional[str] = None):
