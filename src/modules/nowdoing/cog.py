@@ -488,7 +488,10 @@ class NowDoingCog(LionCog):
 
         # Complete the current task if it exists
         if current and not current.is_complete:
+            completed_current = True
             (current,) = await tasklist.complete_tasks(current.taskid)
+        else:
+            completed_current = False
 
         plan = tasklist.get_plan()
 
@@ -528,7 +531,7 @@ class NowDoingCog(LionCog):
 
         await self.dispatch_update(tasklist, profile)
 
-        if current:
+        if current and completed_current:
             started_ago = strfdelta(timedelta(seconds=current.total_duration))
             await ctx.reply(
                 f"Good work finishing `{current.content}`, "
