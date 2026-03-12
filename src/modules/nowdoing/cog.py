@@ -758,6 +758,7 @@ class NowDoingCog(LionCog):
         profileid = profile.profileid
         tasklist = await self.tasker.get_tasklist(profileid)
         current = tasklist.get_current()
+        current_str = ''
 
         indisc = isinstance(ctx, LionContext)
 
@@ -769,26 +770,32 @@ class NowDoingCog(LionCog):
                 return
             pusher = tasklist.push_plan_head if head else tasklist.push_plan_tail
             await pusher(*(task.taskid for task in tasks))
+            plan = tasklist.get_plan()
+            todo = [task for task in plan if not task.is_complete]
+            starter = 'start' if (todo and todo[0].started_at is None) else 'resume'
 
             if len(tasks) == 1:
                 task = tasks[0]
+                if not current or current.is_complete:
+                    current_str = f" Use `!next` to {starter} when ready!"
                 if head:
                     await ctx.reply(
-                        f"Added `#{task.tasklabel}: {task.content}` as your next task."
+                        f"Added `#{task.tasklabel}: {task.content}` as your next task.{current_str}"
                     )
                 else:
                     await ctx.reply(
-                        f"Added `#{task.tasklabel}: {task.content}` to your plan."
+                        f"Added `#{task.tasklabel}: {task.content}` to your plan.{current_str}"
                     )
             else:
-                # TODO: Prompt for next task if no current task
+                if todo and (not current or current.is_complete):
+                    current_str = f" Use `!next` to {starter} `{todo[0].format()}` when ready!"
                 if head:
                     await ctx.reply(
-                        f"Added {len(tasks)} tasks to the head of your plan, best of luck!"
+                        f"Added {len(tasks)} tasks to the head of your plan, best of luck!{current_str}"
                     )
                 else:
                     await ctx.reply(
-                        f"Added {len(tasks)} tasks to your plan, best of luck!"
+                        f"Added {len(tasks)} tasks to your plan, best of luck!{current_str}"
                     )
         elif plan := tasklist.get_plan():
             todo = [task for task in plan if not task.is_complete]
@@ -812,8 +819,16 @@ class NowDoingCog(LionCog):
             else:
                 todostr = ""
 
+            # TODO: Would be preferable to show the current task as well as the plan where possible.
             if len(todo) == 0:
-                message = "You have completed all of your planned tasks, good job!"
+                if current and not current.is_complete:
+                    started_ago = strfdelta(timedelta(seconds=current.total_duration))
+                    current_str = (
+                        f"Your current task is '{current.content}', you have been working on it for {started_ago}"
+                    )
+                else:
+                    current_str = ''
+                message = f"You have completed all of your planned tasks, good job!{current_str}"
             elif len(todo) == 1:
                 if current and todo[0].taskid == current.taskid:
                     message = (
@@ -826,16 +841,23 @@ class NowDoingCog(LionCog):
                     )
             elif len(todo) == len(plan):
                 message = (
-                    f"You have {len(todo)} tasks on the plan, good luck: {todostr}"
+                    f"You have {len(todo)} tasks on your plan, good luck: {todostr}"
                 )
             else:
                 message = f"{len(todo)} tasks remaining out of {len(plan)}, you can do it: {todostr}"
             await ctx.reply(message)
         else:
-            # TODO: If current task set, show that instead of prompting !now
+            if current and not current.is_complete:
+                started_ago = strfdelta(timedelta(seconds=current.total_duration))
+                current_str = (
+                    f"You have been working on '{current.content}' for {started_ago}"
+                )
+            else:
+                current_str = (
+                    "Use !now to show what you are working on, e.g. `!now Reading` or `!now Reading; Writing`"
+                )
             await ctx.reply(
-                "You don't have any tasks on your plan! "
-                "Use !now to show what you are working on, e.g. `!now Reading` or `!now Reading; Writing`"
+                f"You don't have any tasks on your plan! {current_str}"
             )
 
     @commands.command(name="plan", aliases=["later", "add"])
