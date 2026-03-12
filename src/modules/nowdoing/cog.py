@@ -239,16 +239,17 @@ class NowDoingCog(LionCog):
                     remaining = len(plan) - len(completed)
                     if remaining > 0:
                         todo = next(t for t in plan if not t.is_complete)
+                        starter = 'start' if (todo.started_at is None) else 'resume'
                         if remaining > 1:
                             planstr = (
                                 f"You have {remaining}/{len(plan)} tasks left"
-                                f" on your !plan, use `!next` to start `{todo.format()}`"
+                                f" on your !plan, use `!next` to {starter} `{todo.format()}`"
                                 " when you're ready."
                             )
                         else:
                             planstr = (
                                 f"Your last planned task is `{todo.format()}`, "
-                                f"use `!next` to start it when you're ready!"
+                                f"use `!next` to {starter} it when you're ready!"
                             )
                         await ctx.reply(f"{taskstr}! {planstr}")
                     else:
@@ -280,9 +281,10 @@ class NowDoingCog(LionCog):
             if plan:
                 if remaining:
                     todo = remaining[0]
+                    starter = 'start' if (todo.started_at is None) else 'resume'
                     await ctx.reply(
                         "You don't have a current task set!"
-                        f" Use `!next` to start your next task `{todo.format()}`"
+                        f" Use `!next` to {starter} `{todo.format()}`"
                         " or show what you are working on now with e.g. `!now Reading notes`"
                     )
                 else:
@@ -501,8 +503,9 @@ class NowDoingCog(LionCog):
                         "You have completed all the tasks on your plan, good job!"
                     )
                 else:
+                    started = 'Started' if (new_current.completed_at is None) else 'Resumed'
                     next_msg = (
-                        f"Started your next task `{new_current.format()}`, good luck!"
+                        f"{started} your next task `{new_current.format()}`, good luck!"
                     )
 
             if new_current:
@@ -513,11 +516,13 @@ class NowDoingCog(LionCog):
                 task = tasks[0]
                 await tasklist.push_plan_head(*(task.taskid for task in tasks))
                 await tasklist.set_now(task.taskid)
-                next_msg = f"Started `{task.format()}` and added {len(tasks) - 1} more to your !plan. Good luck! "
+                started = 'Started' if (task.completed_at is None) else 'Resumed'
+                next_msg = f"{started} `{task.format()}` and added {len(tasks) - 1} more to your !plan. Good luck! "
             elif len(tasks) == 1:
                 task = tasks[0]
                 await tasklist.set_now(task.taskid)
-                next_msg = f"Started your next task `{task.format()}`, good luck!"
+                started = 'Started' if (task.completed_at is None) else 'Resumed'
+                next_msg = f"{started} your next task `{task.format()}`, good luck!"
             else:
                 next_msg = "Could not parse any tasks from the arguments given, no new task started!"
 
@@ -610,7 +615,8 @@ class NowDoingCog(LionCog):
                         and (todo := next((t for t in plan if not t.is_complete), None))
                     ):
                         # Plan has a next task available
-                        taskstr += f" Use `!next` to start your next planned task `{todo.format()}`"
+                        started = 'start' if (todo.completed_at is None) else 'resume'
+                        taskstr += f" Use `!next` to {started} your next planned task `{todo.format()}`"
                     elif all(t.is_complete for t in plan) and not {
                         t.taskid for t in completed
                     }.isdisjoint(t.taskid for t in plan):
@@ -626,7 +632,7 @@ class NowDoingCog(LionCog):
         else:
             await ctx.reply(
                 "You don't have a task on the tasklist! "
-                f"Show what you are currently working on with, e.g., {ctx.prefix}now Reading Notes"
+                f"Show what you are currently working on with, e.g., !now Reading Notes"
             )
 
     @commands.command(
