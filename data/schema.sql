@@ -1496,6 +1496,21 @@ AS
   WHERE deleted_at IS NULL
   ORDER BY (profileid, taskid);
 
+CREATE VIEW taskslist_log_info AS
+SELECT 
+    taskslist.taskid AS taskid,
+    taskslist.profileid AS profileid,
+    taskslist.content AS content,
+    taskslist.created_at AS created_at,
+    taskslist.duration AS duration,
+    taskslist.started_at AS started_at,
+    taskslist.completed_at AS completed_at,
+    taskslist.completed_in AS completed_in,
+    user_profiles.nickname AS user_nickname
+FROM
+  taskslist
+  LEFT JOIN user_profiles USING (profileid);
+
 
 
 -- }}}
@@ -1530,6 +1545,20 @@ CREATE TABLE counter_log(
   context_str TEXT
 );
 CREATE INDEX counter_log_counterid ON counter_log (counterid);
+
+CREATE OR REPLACE VIEW counter_log_info AS
+SELECT
+  counter_log.value AS counter_value,
+  counter_log.created_at AS created_at,
+  counter_log.context_str AS context_str,
+  counter_log.details AS counter_details,
+  user_profiles.nickname AS user_nickname,
+  counters.name AS counter_name
+FROM counter_log
+LEFT JOIN user_profiles ON counter_log.userid = user_profiles.profileid
+LEFT JOIN counters USING (counterid);
+
+
 -- }}}
 
 -- Tags {{{
