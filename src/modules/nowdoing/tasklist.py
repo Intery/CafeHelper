@@ -186,6 +186,24 @@ class Tasklist:
         # Return tasks which were actually completed
         return [self.id_tasks[taskid] for taskid in taskids]
 
+    async def uncomplete_tasks(self, *taskids) -> list[TaskInfo]:
+        # TODO: Transaction
+        taskids = [id for id in taskids if self.id_tasks[id].is_complete]
+        if taskids:
+            now = utc_now()
+            await self.data.tasklist.update_where(taskid=taskids).set(
+                completed_at=None, completed_in=None
+            )
+            if self.current in taskids:
+                current = self.get_current()
+                assert current is not None
+                await self.data.nowlist.update_where(taskid=self.current).set(
+                    last_started=now,
+                )
+            await self.on_update()
+
+        return [self.id_tasks[taskid] for taskid in taskids]
+
     async def restart_tasks(self, *taskids: int):
         """
         Restart the given tasks.

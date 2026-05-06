@@ -239,7 +239,7 @@ class NowDoingCog(LionCog):
                     remaining = len(plan) - len(completed)
                     if remaining > 0:
                         todo = next(t for t in plan if not t.is_complete)
-                        starter = 'start' if (todo.started_at is None) else 'resume'
+                        starter = "start" if (todo.started_at is None) else "resume"
                         if remaining > 1:
                             planstr = (
                                 f"You have {remaining}/{len(plan)} tasks left"
@@ -281,7 +281,7 @@ class NowDoingCog(LionCog):
             if plan:
                 if remaining:
                     todo = remaining[0]
-                    starter = 'start' if (todo.started_at is None) else 'resume'
+                    starter = "start" if (todo.started_at is None) else "resume"
                     await ctx.reply(
                         "You don't have a current task set!"
                         f" Use `!next` to {starter} `{todo.format()}`"
@@ -408,12 +408,12 @@ class NowDoingCog(LionCog):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.notnow(ctx, profile)
 
-    @commands.command(name="now", aliases=["task", "check"])
+    @commands.command(name="now", aliases=["task", "check", "work"])
     async def twi_now(self, ctx: commands.Context, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
         await self.now(ctx, profile, args)
 
-    @cmds.hybrid_command(name="now", aliases=["task", "check"])
+    @cmds.hybrid_command(name="now", aliases=["task", "check", "work"])
     async def disc_now(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.now(ctx, profile, args)
@@ -506,7 +506,9 @@ class NowDoingCog(LionCog):
                         "You have completed all the tasks on your plan, good job!"
                     )
                 else:
-                    started = 'Started' if (new_current.completed_at is None) else 'Resumed'
+                    started = (
+                        "Started" if (new_current.completed_at is None) else "Resumed"
+                    )
                     next_msg = (
                         f"{started} your next task `{new_current.format()}`, good luck!"
                     )
@@ -519,12 +521,12 @@ class NowDoingCog(LionCog):
                 task = tasks[0]
                 await tasklist.push_plan_head(*(task.taskid for task in tasks))
                 await tasklist.set_now(task.taskid)
-                started = 'Started' if (task.completed_at is None) else 'Resumed'
+                started = "Started" if (task.completed_at is None) else "Resumed"
                 next_msg = f"{started} `{task.format()}` and added {len(tasks) - 1} more to your !plan. Good luck! "
             elif len(tasks) == 1:
                 task = tasks[0]
                 await tasklist.set_now(task.taskid)
-                started = 'Started' if (task.completed_at is None) else 'Resumed'
+                started = "Started" if (task.completed_at is None) else "Resumed"
                 next_msg = f"{started} your next task `{task.format()}`, good luck!"
             else:
                 next_msg = "Could not parse any tasks from the arguments given, no new task started!"
@@ -553,6 +555,81 @@ class NowDoingCog(LionCog):
     async def disc_next(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
         await self.nownext(ctx, profile, args)
+
+    async def undone(
+        self,
+        ctx: commands.Context | LionContext,
+        profile: UserProfile,
+        args: str | None = None,
+    ):
+        tasklist = await self.tasker.get_tasklist(profile.profileid)
+        current = tasklist.get_current()
+
+        if args:
+            try:
+                tasks = await tasklist.parse_taskspec(args, create=False)
+            except TasklistParseCreateError:
+                await ctx.reply("You can't create tasks when uncompleting them!")
+                return
+        else:
+            tasks = [current] if current else []
+
+        if tasks:
+            # Uncomplete the tasks
+            uncompleted = await tasklist.uncomplete_tasks(
+                *[task.taskid for task in tasks]
+            )
+
+            # Response depends on how many tasks were uncomplete
+            # Don't show if duration is less than 30 seconds
+            if not uncompleted:
+                # No tasks were actually completed
+                if len(tasks) > 1:
+                    await ctx.reply("These tasks were not complete!")
+                else:
+                    task = tasks[0]
+                    await ctx.reply(f"Your task `{task.content}` is not complete!")
+            elif len(tasks) == 1 and tasks[0] == current and current:
+                duration = current.duration
+                durstr = strfdelta(timedelta(seconds=duration))
+                await ctx.reply(
+                    f"Uncompleted and resumed your task `{current.content}`, you have worked on it for {durstr} so far! Good luck"
+                )
+            elif len(tasks) == 1:
+                task = tasks[0]
+                duration = task.duration
+                await ctx.reply(f"Uncompleted your task `{task.content}`!")
+            else:
+                await ctx.reply(
+                    f"Uncompleted {len(uncompleted)} tasks on your list. Good luck!"
+                )
+        elif args:
+            await ctx.reply(f"'{args}' didn't match any tasks to unconplete!")
+        else:
+            await ctx.reply(
+                "You don't have a current task set! "
+                "Show what you are currently working on with, e.g., !now Reading Notes"
+            )
+
+    @commands.command(
+        name="undone",
+        aliases=[
+            "uncomplete",
+        ],
+    )
+    async def twi_undone(self, ctx: commands.Context, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_twitch(ctx.author)
+        await self.undone(ctx, profile, args)
+
+    @cmds.hybrid_command(
+        name="undone",
+        aliases=[
+            "uncomplete",
+        ],
+    )
+    async def disc_undone(self, ctx: LionContext, *, args: Optional[str] = None):
+        profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
+        await self.undone(ctx, profile, args)
 
     async def done(
         self,
@@ -618,7 +695,7 @@ class NowDoingCog(LionCog):
                         and (todo := next((t for t in plan if not t.is_complete), None))
                     ):
                         # Plan has a next task available
-                        started = 'start' if (todo.completed_at is None) else 'resume'
+                        started = "start" if (todo.completed_at is None) else "resume"
                         taskstr += f" Use `!next` to {started} your next planned task `{todo.format()}`"
                     elif all(t.is_complete for t in plan) and not {
                         t.taskid for t in completed
@@ -634,7 +711,7 @@ class NowDoingCog(LionCog):
             await ctx.reply(f"'{args}' didn't match any tasks!")
         else:
             await ctx.reply(
-                "You don't have a task on the tasklist! "
+                "You don't have a current task set! "
                 f"Show what you are currently working on with, e.g., !now Reading Notes"
             )
 
@@ -761,7 +838,7 @@ class NowDoingCog(LionCog):
         profileid = profile.profileid
         tasklist = await self.tasker.get_tasklist(profileid)
         current = tasklist.get_current()
-        current_str = ''
+        current_str = ""
 
         indisc = isinstance(ctx, LionContext)
 
@@ -775,7 +852,7 @@ class NowDoingCog(LionCog):
             await pusher(*(task.taskid for task in tasks))
             plan = tasklist.get_plan()
             todo = [task for task in plan if not task.is_complete]
-            starter = 'start' if (todo and todo[0].started_at is None) else 'resume'
+            starter = "start" if (todo and todo[0].started_at is None) else "resume"
 
             if len(tasks) == 1:
                 task = tasks[0]
@@ -791,7 +868,9 @@ class NowDoingCog(LionCog):
                     )
             else:
                 if todo and (not current or current.is_complete):
-                    current_str = f" Use `!next` to {starter} `{todo[0].format()}` when ready!"
+                    current_str = (
+                        f" Use `!next` to {starter} `{todo[0].format()}` when ready!"
+                    )
                 if head:
                     await ctx.reply(
                         f"Added {len(tasks)} tasks to the head of your plan, best of luck!{current_str}"
@@ -826,11 +905,9 @@ class NowDoingCog(LionCog):
             if len(todo) == 0:
                 if current and not current.is_complete:
                     started_ago = strfdelta(timedelta(seconds=current.total_duration))
-                    current_str = (
-                        f"Your current task is '{current.content}', you have been working on it for {started_ago}"
-                    )
+                    current_str = f"Your current task is '{current.content}', you have been working on it for {started_ago}"
                 else:
-                    current_str = ''
+                    current_str = ""
                 message = f"You have completed all of your planned tasks, good job!{current_str}"
             elif len(todo) == 1:
                 if current and todo[0].taskid == current.taskid:
@@ -856,12 +933,8 @@ class NowDoingCog(LionCog):
                     f"You have been working on '{current.content}' for {started_ago}"
                 )
             else:
-                current_str = (
-                    "Use !now to show what you are working on, e.g. `!now Reading` or `!now Reading; Writing`"
-                )
-            await ctx.reply(
-                f"You don't have any tasks on your plan! {current_str}"
-            )
+                current_str = "Use !now to show what you are working on, e.g. `!now Reading` or `!now Reading; Writing`"
+            await ctx.reply(f"You don't have any tasks on your plan! {current_str}")
 
     @commands.command(name="plan", aliases=["later", "add"])
     async def twi_plan(self, ctx: commands.Context, *, args: Optional[str] = None):
