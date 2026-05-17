@@ -1446,7 +1446,7 @@ CREATE TABLE taskslist(
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
   completed_in INTEGER NOT NULL REFERENCES communities(communityid) ON DELETE SET NULL,
-  _timestamp TIMESTAMPTZ DEFAILT NOW()
+  _timestamp TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE TRIGGER tasklist_timestamp BEFORE UPDATE ON tasklist
   FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
