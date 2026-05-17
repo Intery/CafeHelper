@@ -12,6 +12,7 @@ import discord
 from discord.ext import commands as cmds
 from discord import app_commands as appcmds
 
+from modules.nowdoing.planui import PlanUI
 import twitchio
 from twitchio.ext import commands
 
@@ -130,6 +131,40 @@ class NowDoingCog(LionCog):
         else:
             args = self.channel.task_args(current, profile)
             await self.channel.send_set(*args)
+        await self.update_listening_nowlists(tasklist.profileid)
+
+    @LionCog.listener('on_nowlist_update')
+    async def update_listening_nowlists(self, profileid, channel=None, summon=False):
+        """
+        Propagate a tasklist update to all persistent nowlist UIs for this user.
+
+        If channel is given, also summons the UI if the channel is a tasklist channel.
+        """
+        # Do the given channel first, and summon if requested
+        if channel and (tui := PlanUI._live_[profileid].get(channel.id, None)) is not None:
+            try:
+                if summon:
+                    await tui.summon()
+                else:
+                    await tui.refresh()
+                    await tui.redraw()
+            except discord.HTTPException:
+                await tui.close()
+
+        # Now do the rest of the listening channels
+        listening = PlanUI._live_[profileid]
+        for cid, ui in list(listening.items()):
+            if channel and channel.id == cid:
+                # We already did this channel
+                continue
+            if cid not in listening:
+                # UI closed while we were updating
+                continue
+            try:
+                await ui.refresh()
+                await ui.redraw()
+            except discord.HTTPException:
+                await ui.close()
 
     async def migrate_profiles(
         self, source_profile: UserProfile, target_profile: UserProfile
@@ -358,6 +393,7 @@ class NowDoingCog(LionCog):
             # Sidequest tasks only go on the plan if we have multiple tasks
             # Kinda same logic as !now
             await tasklist.push_plan_head(*(task.taskid for task in tasks))
+            await self.update_listening_nowlists(profileid)
             if current and not current.is_complete:
                 await ctx.reply(
                     f"Started your sidequest `{new_current.content}`, "
@@ -542,6 +578,8 @@ class NowDoingCog(LionCog):
         else:
             await ctx.reply(next_msg)
 
+        await self.update_listening_nowlists(profileid)
+
     @commands.command(
         name="next",
     )
@@ -603,6 +641,7 @@ class NowDoingCog(LionCog):
                 await ctx.reply(
                     f"Uncompleted {len(uncompleted)} tasks on your list. Good luck!"
                 )
+            await self.update_listening_nowlists(profileid)
         elif args:
             await ctx.reply(f"'{args}' didn't match any tasks to unconplete!")
         else:
@@ -707,6 +746,7 @@ class NowDoingCog(LionCog):
                         )
                 await self.dispatch_update(tasklist, profile)
                 await ctx.reply(taskstr)
+                await self.update_listening_nowlists(profile.profileid)
         elif args:
             await ctx.reply(f"'{args}' didn't match any tasks!")
         else:
@@ -790,6 +830,7 @@ class NowDoingCog(LionCog):
                     taskstr = f"Removed {len(tasks)} tasks from your tasklist!"
 
         await self.dispatch_update(tasklist, profile)
+        await self.update_listening_nowlists(profile.profileid)
         await ctx.reply(taskstr)
 
     async def restart(
@@ -817,6 +858,7 @@ class NowDoingCog(LionCog):
             await tasklist.restart_tasks(current.taskid)
             await self.dispatch_update(tasklist, profile)
             await ctx.reply("Restarted your current task, good luck!")
+            await self.update_listening_nowlists(profile.profileid)
 
     @commands.command(name="restart")
     async def twi_restart(self, ctx: commands.Context, *, args: Optional[str] = None):
@@ -879,6 +921,7 @@ class NowDoingCog(LionCog):
                     await ctx.reply(
                         f"Added {len(tasks)} tasks to your plan, best of luck!{current_str}"
                     )
+            await self.update_listening_nowlists(profile.profileid)
         elif plan := tasklist.get_plan():
             todo = [task for task in plan if not task.is_complete]
             if todo:
@@ -949,7 +992,12 @@ class NowDoingCog(LionCog):
     @cmds.hybrid_command(name="plan", aliases=["later", "add", "soon"])
     async def disc_plan(self, ctx: LionContext, *, args: Optional[str] = None):
         profile = await self.bot.get_cog("ProfileCog").fetch_profile_discord(ctx.author)
-        await self.planner(ctx, profile, args, head=(ctx.invoked_with == "soon"))
+        if ctx.invoked_with == 'plan' and not args:
+            tasklist = await self.tasker.get_tasklist(profile.profileid)
+            planui = PlanUI.fetch(self.bot, tasklist, ctx.channel, guild=ctx.guild, timeout=None)
+            await planui.summon(force=True, caller=ctx.author)
+        else:
+            await self.planner(ctx, profile, args, head=(ctx.invoked_with == "soon"))
 
     async def unplanner(
         self,
@@ -962,7 +1010,13 @@ class NowDoingCog(LionCog):
         """
         tasklist = await self.tasker.get_tasklist(profile.profileid)
 
-        if args:
+        if args and args.lower() in ('done', 'complete', 'completed', 'finished'):
+            plan = tasklist.get_plan()
+            new_planids = [t.taskid for t in plan if not t.is_complete]
+            removed = len(plan) - len(new_planids)
+            await tasklist.set_plan(*new_planids)
+            await ctx.reply(f"Removed {removed} completed task(s) from your plan!")
+        elif args:
             try:
                 tasks = await tasklist.parse_taskspec(args, create=False)
             except TasklistParseCreateError:
@@ -984,6 +1038,7 @@ class NowDoingCog(LionCog):
             # Wipe the plan
             await tasklist.set_plan()
             await ctx.reply("Removed all tasks from your plan")
+        await self.update_listening_nowlists(profile.profileid)
 
     @commands.command(name="unplan")
     async def twi_unplan(self, ctx: commands.Context, *, args: Optional[str] = None):
